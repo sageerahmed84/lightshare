@@ -227,6 +227,11 @@ html, body {
   box-shadow: 0 0 0 999px rgba(0,0,0,0.35); pointer-events: none;
 }
 .scan-controls { display: flex; justify-content: center; padding: 10px 0 2px; }
+.scan-status {
+  position: absolute; left: 8px; right: 8px; bottom: 8px; margin: 0;
+  text-align: center; font-size: 12px; color: var(--text-hi);
+  background: rgba(0,0,0,0.55); border-radius: var(--radius-sm); padding: 6px 8px;
+}
 
 .method-toggle { text-align: center; margin: 4px 0 14px; }
 
@@ -388,6 +393,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
       <div class="scan-wrap hidden" id="hostScanWrap">
         <video id="hostScanVideo" class="scan-video" playsinline muted></video>
         <div class="scan-frame"></div>
+        <p class="scan-status" id="hostScanStatus">Starting camera…</p>
         <div class="scan-controls"><button class="btn btn-ghost sm" id="btnHostCancelScan">Cancel scan</button></div>
       </div>
 
@@ -412,6 +418,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
       <div class="scan-wrap hidden" id="joinScanWrap">
         <video id="joinScanVideo" class="scan-video" playsinline muted></video>
         <div class="scan-frame"></div>
+        <p class="scan-status" id="joinScanStatus">Starting camera…</p>
         <div class="scan-controls"><button class="btn btn-ghost sm" id="btnJoinCancelScan">Cancel scan</button></div>
       </div>
 
@@ -1211,14 +1218,18 @@ function renderQrToCanvas(canvas, text) {
  * Opens the device camera into `videoEl` and repeatedly scans frames with
  * jsQR until a code is found or the scan is cancelled. Returns a controller
  * with a `stop()` method; the decoded text arrives via the `onResult`
- * callback (called at most once per scan session).
+ * callback (called at most once per scan session). `onStatus` gets short
+ * human-readable progress/error strings — there's no devtools on an iPad,
+ * so surfacing everything on-screen is the only way to debug it there.
  */
-function startQrScan(videoEl, onResult, onError) {
+function startQrScan(videoEl, onResult, onError, onStatus) {
   let stream = null;
   let raf = null;
+  let stalledTimer = null;
   let stopped = false;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const status = (s) => onStatus?.(s);
 
   function tick() {
     if (stopped) return;
@@ -1241,21 +1252,62 @@ function startQrScan(videoEl, onResult, onError) {
     if (stopped) return;
     stopped = true;
     if (raf) cancelAnimationFrame(raf);
+    if (stalledTimer) clearTimeout(stalledTimer);
     if (stream) stream.getTracks().forEach((t) => t.stop());
     videoEl.srcObject = null;
   }
 
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+  function fail(message, err) {
+    stopped = true;
+    if (stalledTimer) clearTimeout(stalledTimer);
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    console.error('[qr-scan]', message, err || '');
+    onError?.(new Error(message));
+  }
+
+  // On iOS, navigator.mediaDevices is sometimes entirely missing — most
+  // commonly when the page is opened as an installed/home-screen app rather
+  // than a normal Safari tab (a long-standing WebKit limitation), or when
+  // the page isn't served over HTTPS. Guard this explicitly: without it,
+  // getUserMedia below would throw synchronously and the button would look
+  // like it silently did nothing.
+  if (!navigator.mediaDevices?.getUserMedia) {
+    fail('Camera isn\u2019t available on this page. If you opened this as an installed app (added to your Home Screen), try opening it in a regular Safari tab instead — camera access is unreliable in installed web apps on iPad/iPhone. Also make sure the page is loaded over https://.');
+    return { stop };
+  }
+
+  status('Requesting camera access…');
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } })
+    .catch((err) => {
+      // Some devices reject an environment-facing request outright (e.g. no
+      // rear camera enumerated yet) — retry with no facingMode constraint.
+      if (stopped) throw err;
+      return navigator.mediaDevices.getUserMedia({ video: true });
+    })
     .then((s) => {
       if (stopped) { s.getTracks().forEach((t) => t.stop()); return; }
       stream = s;
+      status('Starting video…');
+      videoEl.muted = true;
+      videoEl.playsInline = true;
       videoEl.srcObject = stream;
-      videoEl.play();
+      const playResult = videoEl.play();
+      if (playResult?.catch) playResult.catch((err) => fail('Could not start the camera preview.', err));
+      // If frames never actually arrive (permission granted but stream
+      // stalled — seen on some iOS versions), say so instead of spinning
+      // forever with no feedback.
+      stalledTimer = setTimeout(() => {
+        if (!stopped && videoEl.readyState !== videoEl.HAVE_ENOUGH_DATA) {
+          status('Still waiting for the camera feed — try Cancel and Scan again, or check Settings → Safari → Camera for this site.');
+        }
+      }, 4000);
       raf = requestAnimationFrame(tick);
+      status('Point the camera at the QR code.');
     })
     .catch((err) => {
-      stopped = true;
-      onError?.(err);
+      fail(err?.name === 'NotAllowedError'
+        ? 'Camera permission was denied. Allow camera access for this site in Settings, then try again.'
+        : 'Could not access the camera: ' + (err?.message || err?.name || 'unknown error'), err);
     });
 
   return { stop };
@@ -1548,6 +1600,7 @@ async function createReceiveSink(meta) {
     $('hostPairError').textContent = '';
     $('hostPasteBlock').classList.add('hidden');
     $('hostScanWrap').classList.remove('hidden');
+    $('hostScanStatus').textContent = 'Starting camera…';
     hostScanCtrl = startQrScan($('hostScanVideo'), async (text) => {
       $('hostScanWrap').classList.add('hidden');
       try {
@@ -1557,11 +1610,11 @@ async function createReceiveSink(meta) {
       } catch (err) {
         $('hostPairError').textContent = err.message;
       }
-    }, () => {
-      $('hostPairError').textContent = 'Could not access the camera. You can paste the reply code instead.';
+    }, (err) => {
+      $('hostPairError').textContent = err.message + ' You can paste the reply code instead.';
       $('hostScanWrap').classList.add('hidden');
       $('hostPasteBlock').classList.remove('hidden');
-    });
+    }, (msg) => { $('hostScanStatus').textContent = msg; });
   });
 
   $('btnHostCancelScan').addEventListener('click', stopHostScan);
@@ -1605,14 +1658,15 @@ async function createReceiveSink(meta) {
     $('joinReadError').textContent = '';
     $('joinPasteBlock').classList.add('hidden');
     $('joinScanWrap').classList.remove('hidden');
+    $('joinScanStatus').textContent = 'Starting camera…';
     joinScanCtrl = startQrScan($('joinScanVideo'), (text) => {
       $('joinScanWrap').classList.add('hidden');
       handleOfferText(text);
-    }, () => {
-      $('joinReadError').textContent = 'Could not access the camera. You can paste the pairing code instead.';
+    }, (err) => {
+      $('joinReadError').textContent = err.message + ' You can paste the pairing code instead.';
       $('joinScanWrap').classList.add('hidden');
       $('joinPasteBlock').classList.remove('hidden');
-    });
+    }, (msg) => { $('joinScanStatus').textContent = msg; });
   });
 
   $('btnJoinCancelScan').addEventListener('click', stopJoinScan);
