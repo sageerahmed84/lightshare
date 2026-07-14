@@ -345,6 +345,8 @@ html, body {
 .transfer-bar-fill { height: 100%; background: linear-gradient(90deg, var(--clay), var(--teal)); width: 0%; transition: width 0.15s ease; }
 .transfer-stats { font-size: 10.5px; color: var(--text-lo); }
 .transfer-cancel { background: transparent; border: none; color: var(--text-faint); cursor: pointer; font-size: 14px; padding: 4px; }
+.transfer-pause { background: transparent; border: none; color: var(--text-faint); cursor: pointer; font-size: 14px; padding: 4px; }
+.transfer-pause.is-paused { color: var(--accent, #4a9eff); }
 
 /* ---------- Focus visibility ---------- */
 button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
@@ -585,6 +587,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
       <div class="transfer-bar-track"><div class="transfer-bar-fill"></div></div>
       <div class="transfer-stats"></div>
     </div>
+    <button class="transfer-pause" title="Pause">⏸</button>
     <button class="transfer-cancel" title="Cancel">✕</button>
   </div>
 </template>
@@ -879,6 +882,8 @@ async function setSetting(key, value) {
  *   file-decline { transferId, reason }
  *   file-done    { transferId }                    // sender finished writing
  *   file-cancel  { transferId }
+ *   file-pause   { transferId }                    // receiver asks sender to stop pushing bytes
+ *   file-resume  { transferId, resumeFromByte }     // receiver asks sender to continue from this offset
  *   file-error   { transferId, message }
  *   lib-list     { entries: [{id,name,size,mime,category}] }  // full snapshot of one side's library
  *   file-pull    { libraryId, resumeFromByte, purpose }        // "give me this item I can already see"
@@ -891,14 +896,20 @@ async function setSetting(key, value) {
  * shown, since the receiver explicitly asked for that exact item.
  */
 
-// 256KB strikes a good balance: comfortably under every browser's SCTP
-// message-size limit (Chrome/Firefox/Safari all happily do multi-MB, but
-// 256KB is the safe floor that works everywhere) while cutting the number of
-// async round-trips (Blob.slice().arrayBuffer() + channel.send()) by 4x
-// compared to the old 64KB chunks. On a LAN/hotspot the bottleneck is almost
-// never the wire — it's the number of JS microtask hops per chunk. Fewer,
-// bigger chunks = much higher throughput for the same link.
-const CHUNK_SIZE = 256 * 1024;
+// Chunk size is NOT a fixed constant — different browsers (notably Safari/
+// iOS/iPadOS) negotiate very different SCTP max-message-size limits during
+// the WebRTC handshake, and sending a chunk larger than that limit causes
+// the data channel to throw/close ("message too large"/"exceeded max
+// message size"). Chrome/Firefox/desktop Safari are usually generous
+// (multi-MB), but iPad Safari can be far stricter. Rather than guess, we
+// read the real negotiated limit off pc.sctp.maxMessageSize once the
+// channel opens and derive the chunk size from it, capped at a generous
+// ceiling for fast LAN links and floored so we never go pathologically
+// small. This keeps transfers fast on permissive browsers while staying
+// safe everywhere, including iPad.
+const DEFAULT_CHUNK_SIZE = 64 * 1024;   // conservative fallback if maxMessageSize is unavailable
+const MAX_CHUNK_SIZE = 256 * 1024;      // ceiling for throughput on permissive browsers
+const MIN_CHUNK_SIZE = 16 * 1024;       // floor so we don't over-shrink on very strict peers
 const HEADER_BYTES = 8;
 const BUFFERED_AMOUNT_HIGH_WATER = 32 * 1024 * 1024;  // pause sending above 32MB queued
 const BUFFERED_AMOUNT_LOW_WATER = 8 * 1024 * 1024;    // resume sending below 8MB queued
@@ -922,6 +933,10 @@ class LocalShareConnection {
     // Incoming transfers keyed by transferId
     this._incoming = new Map();
     this._nextTransferId = 1;
+
+    // Resolved once the channel opens, from the peer's actual negotiated
+    // SCTP max-message-size — see the comment above DEFAULT_CHUNK_SIZE.
+    this.chunkSize = DEFAULT_CHUNK_SIZE;
 
     // app.js sets this to a function (libraryId) => libraryEntry | null so
     // that incoming 'file-pull' requests can be resolved against whatever
@@ -962,11 +977,31 @@ class LocalShareConnection {
   _wireChannel(channel) {
     channel.binaryType = 'arraybuffer';
     channel.bufferedAmountLowThreshold = BUFFERED_AMOUNT_LOW_WATER;
-    channel.onopen = () => { this._setState('connected'); bus.emit('rtc:open'); };
+    channel.onopen = () => {
+      this._negotiateChunkSize();
+      this._setState('connected');
+      bus.emit('rtc:open');
+    };
     channel.onclose = () => { this._setState('closed'); bus.emit('rtc:close'); };
     channel.onerror = (e) => bus.emit('rtc:error', e);
     channel.onmessage = (ev) => this._onMessage(ev.data);
     channel.onbufferedamountlow = () => this._pumpAllOutgoing();
+  }
+
+  /**
+   * Read the real negotiated SCTP max-message-size for this connection and
+   * derive a safe chunk size from it. Must run after the channel is open
+   * (pc.sctp isn't populated with a reliable value before then). Falls back
+   * to DEFAULT_CHUNK_SIZE if the browser doesn't expose pc.sctp at all.
+   */
+  _negotiateChunkSize() {
+    const negotiatedMax = this.pc?.sctp?.maxMessageSize;
+    if (!negotiatedMax || !isFinite(negotiatedMax) || negotiatedMax <= 0) {
+      this.chunkSize = DEFAULT_CHUNK_SIZE;
+      return;
+    }
+    const safeMax = negotiatedMax - HEADER_BYTES;
+    this.chunkSize = Math.max(MIN_CHUNK_SIZE, Math.min(safeMax, MAX_CHUNK_SIZE));
   }
 
   /** Wait until ICE gathering finishes so we produce one complete SDP blob (no trickle needed for manual copy/paste). */
@@ -1042,6 +1077,8 @@ class LocalShareConnection {
       case 'file-accept': this._beginSending(msg.transferId, msg.resumeFromByte || 0); break;
       case 'file-decline': bus.emit('transfer:declined', msg); this._outgoing.delete(msg.transferId); break;
       case 'file-cancel': this._cancelAny(msg.transferId); bus.emit('transfer:cancelled', msg); break;
+      case 'file-pause': this._pauseOutgoing(msg.transferId); break;
+      case 'file-resume': this._resumeOutgoing(msg.transferId, msg.resumeFromByte || 0); break;
       case 'file-done': bus.emit('transfer:sender-done', msg); break;
       case 'file-error': bus.emit('transfer:error', msg); break;
       case 'lib-list': bus.emit('library:remote-list', msg.entries || []); break;
@@ -1130,6 +1167,21 @@ class LocalShareConnection {
     for (const id of this._outgoing.keys()) this._pumpOutgoing(id);
   }
 
+  /** Peer (receiver) asked us to stop sending bytes for this transfer — just stop pumping, keep our offset. */
+  _pauseOutgoing(transferId) {
+    const t = this._outgoing.get(transferId);
+    if (t) t.paused = true;
+  }
+
+  /** Peer (receiver) asked us to continue from a given byte offset (their last confirmed received byte). */
+  _resumeOutgoing(transferId, resumeFromByte) {
+    const t = this._outgoing.get(transferId);
+    if (!t) return;
+    t.offset = resumeFromByte;
+    t.paused = false;
+    this._pumpOutgoing(transferId);
+  }
+
   /** Read+send chunks until buffer is full or file is exhausted; resumes via onbufferedamountlow. */
   async _pumpOutgoing(transferId) {
     const t = this._outgoing.get(transferId);
@@ -1144,7 +1196,7 @@ class LocalShareConnection {
         t.paused = true;
         return; // onbufferedamountlow will resume the pump
       }
-      const end = Math.min(t.offset + CHUNK_SIZE, t.size);
+      const end = Math.min(t.offset + this.chunkSize, t.size);
       const slice = blob.slice(t.offset, end);
       const buf = await slice.arrayBuffer();
       const framed = new ArrayBuffer(HEADER_BYTES + buf.byteLength);
@@ -1185,6 +1237,21 @@ class LocalShareConnection {
 
   declineIncoming(transferId, reason = 'declined') {
     this._send({ type: 'file-decline', transferId, reason });
+  }
+
+  /** UI calls this to pause a download in progress. Tells the sender to stop pushing bytes; we keep what we've already written. */
+  pauseIncoming(transferId) {
+    const t = this._incoming.get(transferId);
+    if (t) t.paused = true;
+    this._send({ type: 'file-pause', transferId });
+  }
+
+  /** UI calls this to resume a previously paused download. */
+  resumeIncoming(transferId) {
+    const t = this._incoming.get(transferId);
+    if (!t) return;
+    t.paused = false;
+    this._send({ type: 'file-resume', transferId, resumeFromByte: t.received });
   }
 
   _cancelIncoming(transferId) {
@@ -2257,13 +2324,47 @@ function createViewSink(meta, mediaEl) {
     rowEl.querySelector('.transfer-icon').textContent = CATEGORY_ICON[category] || CATEGORY_ICON.file;
     rowEl.querySelector('.transfer-name').textContent = `${direction === 'out' ? '↑' : '↓'} ${name}`;
     rowEl.querySelector('.transfer-stats').textContent = `0% · ${formatBytes(size)}`;
+
+    const pauseBtn = rowEl.querySelector('.transfer-pause');
+    // Pause/resume only makes sense for downloads (incoming transfers) — the
+    // sender has nothing to pause locally that the receiver-driven protocol
+    // doesn't already handle via file-pause/file-resume.
+    if (direction === 'in') {
+      pauseBtn.addEventListener('click', () => {
+        const row = rows.get(transferId);
+        if (!row) return;
+        if (row.paused) {
+          PairingSession.conn.resumeIncoming(transferId);
+          row.paused = false;
+          row.lastTs = performance.now(); // don't count paused time toward the next speed sample
+          pauseBtn.textContent = '⏸';
+          pauseBtn.title = 'Pause';
+          pauseBtn.classList.remove('is-paused');
+        } else {
+          PairingSession.conn.pauseIncoming(transferId);
+          row.paused = true;
+          pauseBtn.textContent = '▶';
+          pauseBtn.title = 'Resume';
+          pauseBtn.classList.add('is-paused');
+          const pct = Math.round((row.lastBytes / row.size) * 100);
+          rowEl.querySelector('.transfer-stats').textContent = `${pct}% · ${formatBytes(row.lastBytes)} / ${formatBytes(row.size)} · Paused`;
+        }
+      });
+    } else {
+      pauseBtn.remove();
+    }
+
     rowEl.querySelector('.transfer-cancel').addEventListener('click', () => {
-      if (direction === 'out') PairingSession.conn.cancelOutgoing(transferId);
+      if (direction === 'out') {
+        PairingSession.conn.cancelOutgoing(transferId);
+      } else {
+        PairingSession.conn.cancelIncoming(transferId);
+      }
       rowEl.remove();
       rows.delete(transferId);
     });
     trayEl.appendChild(rowEl);
-    rows.set(transferId, { el: rowEl, size, startedAt: performance.now(), lastBytes: 0, lastTs: performance.now() });
+    rows.set(transferId, { el: rowEl, size, direction, paused: false, startedAt: performance.now(), lastBytes: 0, lastTs: performance.now() });
   }
 
   bus.on('transfer:progress', ({ transferId, sent, received, size, direction }) => {
