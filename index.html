@@ -214,7 +214,7 @@ html, body {
   padding: 16px; margin: 16px 0 6px;
   box-shadow: var(--shadow-clay-out);
 }
-.qr-canvas { width: 100%; max-width: 240px; height: auto; image-rendering: pixelated; display: block; }
+.qr-canvas { width: 100%; max-width: min(88vw, 380px); height: auto; image-rendering: pixelated; display: block; }
 .qr-hint { text-align: center; color: var(--text-lo); font-size: 12.5px; margin: 0 0 4px; }
 
 .scan-wrap {
@@ -590,18 +590,57 @@ async function sixDigitCode(str) {
   return String(n).padStart(6, '0');
 }
 
-/** Base64url-encode a UTF-8 string (safe for copy/paste, no + / = noise). */
-function encodeBlob(obj) {
+/**
+ * Base64url-encode a blob for pairing. Gzips first when the browser supports
+ * CompressionStream — SDP text (repeated "candidate:", "a=", "IN IP4"...) is
+ * highly compressible, and a smaller payload means a much less dense QR
+ * code, which is the difference between "scans instantly" and "unscannable"
+ * on a phone camera pointed at another phone's screen. Falls back to plain
+ * encoding on older browsers. First character of the output is a flag
+ * marking whether gzip was used, so decodeBlob knows how to reverse it.
+ */
+async function encodeBlob(obj) {
   const json = JSON.stringify(obj);
-  const b64 = btoa(unescape(encodeURIComponent(json)));
-  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const bytes = new TextEncoder().encode(json);
+  let payload = bytes;
+  let flag = '0';
+  if (typeof CompressionStream !== 'undefined') {
+    try {
+      const cs = new CompressionStream('gzip');
+      const writer = cs.writable.getWriter();
+      writer.write(bytes);
+      writer.close();
+      payload = new Uint8Array(await new Response(cs.readable).arrayBuffer());
+      flag = '1';
+    } catch {
+      payload = bytes;
+      flag = '0';
+    }
+  }
+  let binary = '';
+  for (let i = 0; i < payload.length; i++) binary += String.fromCharCode(payload[i]);
+  const b64 = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return flag + b64;
 }
 
 /** Reverse of encodeBlob. Throws if the blob is malformed. */
-function decodeBlob(str) {
-  const cleaned = str.trim().replace(/-/g, '+').replace(/_/g, '/');
+async function decodeBlob(str) {
+  const trimmed = str.trim();
+  const flag = trimmed[0];
+  const cleaned = trimmed.slice(1).replace(/-/g, '+').replace(/_/g, '/');
   const padded = cleaned + '='.repeat((4 - (cleaned.length % 4)) % 4);
-  const json = decodeURIComponent(escape(atob(padded)));
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  let plain = bytes;
+  if (flag === '1') {
+    const ds = new DecompressionStream('gzip');
+    const writer = ds.writable.getWriter();
+    writer.write(bytes);
+    writer.close();
+    plain = new Uint8Array(await new Response(ds.readable).arrayBuffer());
+  }
+  const json = new TextDecoder().decode(plain);
   return JSON.parse(json);
 }
 
@@ -1075,7 +1114,7 @@ const PairingSession = {
     this.role = 'host';
     const offerDesc = await this.conn.createOfferBlob();
     const blob = { v: 1, kind: 'offer', desc: offerDesc, ts: Date.now() };
-    this.offerBlobText = encodeBlob(blob);
+    this.offerBlobText = await encodeBlob(blob);
     this.code = await sixDigitCode(this.offerBlobText);
     bus.emit('pairing:offer-ready', { blobText: this.offerBlobText, code: this.code });
     return { blobText: this.offerBlobText, code: this.code };
@@ -1084,7 +1123,7 @@ const PairingSession = {
   /** Host pastes in the joiner's answer blob to finish the handshake. */
   async completePairing(answerBlobText) {
     let parsed;
-    try { parsed = decodeBlob(answerBlobText); }
+    try { parsed = await decodeBlob(answerBlobText); }
     catch { throw new Error('That doesn\u2019t look like a valid answer code. Check it was copied in full.'); }
     if (parsed.kind !== 'answer') throw new Error('This is not an answer code — did you paste the offer by mistake?');
     await this.conn.acceptAnswerBlob(parsed.desc);
@@ -1096,7 +1135,7 @@ const PairingSession = {
   /** Parse the offer blob the joiner received and compute the code to verify against the host's screen. */
   async readOfferBlob(offerBlobText) {
     let parsed;
-    try { parsed = decodeBlob(offerBlobText); }
+    try { parsed = await decodeBlob(offerBlobText); }
     catch { throw new Error('That doesn\u2019t look like a valid pairing code. Check it was copied in full.'); }
     if (parsed.kind !== 'offer') throw new Error('This is not a pairing (offer) code.');
     const code = await sixDigitCode(offerBlobText.trim());
@@ -1112,7 +1151,7 @@ const PairingSession = {
     this.role = 'joiner';
     const answerDesc = await this.conn.createAnswerBlob(this._pendingOffer.desc);
     const blob = { v: 1, kind: 'answer', desc: answerDesc, ts: Date.now() };
-    this.answerBlobText = encodeBlob(blob);
+    this.answerBlobText = await encodeBlob(blob);
     bus.emit('pairing:answer-ready', { blobText: this.answerBlobText });
     return this.answerBlobText;
   },
@@ -1153,14 +1192,14 @@ function renderQrToCanvas(canvas, text) {
   }
 
   const count = qr.getModuleCount();
-  const cell = Math.max(2, Math.floor(320 / count));
+  const cell = Math.max(4, Math.floor(600 / count));
   const size = cell * count;
   canvas.width = size;
   canvas.height = size;
   const ctx = canvas.getContext('2d');
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, size, size);
-  ctx.fillStyle = '#14171c';
+  ctx.fillStyle = '#000';
   for (let row = 0; row < count; row++) {
     for (let col = 0; col < count; col++) {
       if (qr.isDark(row, col)) ctx.fillRect(col * cell, row * cell, cell, cell);
