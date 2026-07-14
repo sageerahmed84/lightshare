@@ -1,0 +1,1553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>LocalShare</title>
+<meta name="theme-color" content="#14171c">
+<!--
+  Single combined file by design: this index.html + sw.js is the whole app.
+  sw.js has to stay a separate physical file — browsers refuse to register a
+  service worker from a blob:/data: URL, only a same-origin .js file works.
+  Everything else — CSS, all app modules, the manifest, and the icons — is
+  inlined below, including the manifest as a base64 data: URI so no second
+  JSON file is needed either.
+-->
+<link rel="manifest" href="data:application/json;base64,eyJuYW1lIjogIkxvY2FsU2hhcmUiLCAic2hvcnRfbmFtZSI6ICJMb2NhbFNoYXJlIiwgImRlc2NyaXB0aW9uIjogIkRpcmVjdCBkZXZpY2UtdG8tZGV2aWNlIGZpbGUgc2hhcmluZyBhbmQgc3RyZWFtaW5nLiBObyBjbG91ZCwgbm8gYWNjb3VudHMsIG5vIHVwbG9hZHMuIiwgInN0YXJ0X3VybCI6ICIuLyIsICJzY29wZSI6ICIuLyIsICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLCAib3JpZW50YXRpb24iOiAiYW55IiwgImJhY2tncm91bmRfY29sb3IiOiAiIzE0MTcxYyIsICJ0aGVtZV9jb2xvciI6ICIjMTQxNzFjIiwgImljb25zIjogW3sic3JjIjogImRhdGE6aW1hZ2UvcG5nO2Jhc2U2NCxpVkJPUncwS0dnb0FBQUFOU1VoRVVnQUFBTUFBQUFEQUNBWUFBQUJTM0d3SEFBQUU4MGxFUVZSNG5PM2RRVzdVU0FDRjRlcG9qb0NFa0xoSjlpeHlBc1NLQzNDTXVRZExUc0NDZlc0U0NVWEtIWmpGeUZFbmRKSjJ1MXgyMWZ1K1BjUkc3M2U1RXdTSHNqUHYzbi84cy9VMXNLNkgrN3ZEMXRjdzJmUkNqSjNKVmxFMC82Skd6MXRheHREc0N4aytjN1VJWWZVdllQZ3N0V1lJcS8zR2hrOXRhNFJRL1RjMGZOWldNNFNyV3I5UktjWlBHelYzVnFVa3cyY3JTMCtEeFNlQThiT2xwZnRiRklEeHN3ZExkbmh4QU1iUG5seTZ4NHNDTUg3MjZKSmR6ZzdBK05tenVmdWNGWUR4MDRNNU96MDdBT09uSitmdTlhd0FqSjhlbmJQYk53TXdmbnIyMW42ci9sVUk2TTJyQVhqNk00TFhkdnhpQU1iUFNGN2FzMWNnb3AwTXdOT2ZFWjNhdFJPQWFIOEY0T25QeUo3djJ3bEF0Q2NCZVBxVDRIam5UZ0NpUFFiZzZVK1NhZTlPQUtJSmdHaUhVcnora01zSlFEUUJFRTBBUkJNQTBhNThBQ2FaRTRCb0FpQ2FBSWdtQUtJSmdHZ0NJSm9BaVBiUDFoZlF5dTNYNjYwdjRhVHI3N2RiWDBLMHc4Zy9DTnZyNkY4aWh2YUdES0MzNFQ4bmhIYUcrd3pRKy9oTEdlTWVlakZVQUNNTlo2UjcyYk5oQWhoeE1DUGUwOTRNRWNESVF4bjUzdmFnK3dBU0JwSndqMXZwT29Da1lTVGRhMHZkQnBBNGlNUjdYbHUzQVVBTlhRYVEvQ1JNdnZjMWRCa0ExQ0lBb25VWGdGY0Fmd1kxZFJjQTFDUUFvZ21BYUFJZ21nQ0lKZ0NpQ1lCb0FpQ2FBSWdtQUtJSmdHZ0NJSm9BaUNZQW9nbUFhQUlnbWdDSUpnQ2lDWUJvQWlDYUFJZ21BS0lKZ0dnQ0lGck1mNU82Wi85KytmWjc3cSs1K2ZKdGpVdDU0dWVueng5Vy95SWJFOEJHTGhsOWF6ZS9manhlNDZneENLQ3hIb1oveWhURGFDSDRETkJRcitNL2Rud3FqRUFBall3dy9zbElFUWlnZ1pIR1B4a2xBZ0dzYk1UeFQwYUlRQUFyR25uOGs5NGpFTUJLRXNZLzZUa0NBYXdnYWZ5VFhpTVFBTkVFVUZuaTAzL1M0eWtnQUtKMUY4RDE5OXV0TDRHQmRCZkFuaVcvL2t4NmV3MFNBTkc2RE1CckVMVjBHUURVMG0wQVRnRnE2RGFBVWtUQWNsMEhVSW9JV0tiN0FFb1JBWmNiSW9CU1JNQmxoZ21nRkJFdzMxQUJsQ0lDNWhrdWdGTCtqMEFJbkdQb2Z4Zm9PSUxicjljYlhnbDdOWFFBeDFxY0NDMyt1VUxxR3ZJVkNNNGxBS0lKZ0dnQ0lKb0FpQ1lBb2dtQWFBSWdtZ0NJSmdDaUNZQm9BaUNhQUlnbUFLSUpnR2dDSUpvQWlDWUFvZ21BYUFJZ21nQ0lKZ0NpQ1lCb0FpQ2FBQ3I2K2Vuemg2MnZZV3U5L1JrSWdHZ0NJSm9BS3V2dEZhQ21IdTlkQUVRVHdBcDZmQkl1MWVzOUMyQWx2UTdpRWozZnF3QlcxUE13enRYN1BRcGdaYjBQNURVajNKc0FHaGhoS00rTmNrOENhR1NVd1pReTFyMElvS0VSaGpQQ1BSdzd2SHYvOGMvV0Y1SG81dGVQMzF0Znd4eWpEWDhpZ0IzWWF3eWpqdjZZQUlqbU13RFJCRUEwQVJCTkFFUVRBTkVFUURRQkVPM3E0Zjd1c1BWRndGYWNBRVFUQU5FRVFEUUJFTzJxbEZKOEVDYlJ3LzNkd1FsQU5BRVE3VEVBcjBFa21mYnVCQ0Rha3dDY0FpUTQzcmtUZ0doL0JlQVVZR1RQOSswRUlOckpBSndDak9qVXJwMEFSSHN4QUtjQUkzbHB6NitlQUNKZ0JLL3QyQ3NRMGQ0TXdDbEF6OTdhNzFrbmdBam8wVG03UGZzVlNBVDA1Tnk5enZvTUlBSjZNR2Vuc3o4RWk0QTltN3ZQaTc0TEpBTDI2SkpkWHZ4dFVCR3dKNWZ1Y2RIUEFVVEFIaXpaNGVJZmhJbUFMUzNkWDlYeCt2L0dhS1hXZzdmcVg0VndHdEJDeloydE5saW5BYld0OFlCZC9Za3RCSlphODgyaTJTdUxFSmlyeFN0MTgzZDJJZkNXbHA4bE4vM1FLZ1ltVzMwRDVUOEtwMkdvdUxyZXlnQUFBQUJKUlU1RXJrSmdnZz09IiwgInNpemVzIjogIjE5MngxOTIiLCAidHlwZSI6ICJpbWFnZS9wbmciLCAicHVycG9zZSI6ICJhbnkifSwgeyJzcmMiOiAiZGF0YTppbWFnZS9wbmc7YmFzZTY0LGlWQk9SdzBLR2dvQUFBQU5TVWhFVWdBQUFnQUFBQUlBQ0FZQUFBRDBlTlQ2QUFBTzlFbEVRVlI0bk8zY3o2MFVSeGZHNGI2SUVKQ1FKVEpoN3dVUldGNDVBWWZoUEZnNkFpKzhKeE1rQzRrYytCYWZCaTV6NTEvUGRGZWRxdmQ1RXZCTTBlcno2OVBqKzdSUTBwdTM3NzcxL2d3QVcvbjY1Zk5UNzgvQXoveURkR0xBQS93Z0VOcHo0QTBZOWdEcmlZSjlPZHdkR1BnQTJ4TUUyM0tZR3pEd0Fkb1RCSTl4ZUhjeTlBSHFFQVByT2JBVkRIMkErc1RBYlJ6U0ZZWSt3TGpFd0hrTzVneURIMkFlUXVBbEIvS01vUTh3UHpId2Z3NWhNZmdCRXFXSFFQU1hOL2dCU0EyQnlDOXQ4QU53TEMwRW9yNnN3US9BTlNraEVQRWxEWDRBMXBvOUJGNzEvZ0I3TS93QnVNZnM4MlBhdXBuOUh3NkFkbWJjQmt6M2hReCtBUFl5VXdoTTlRckE4QWRnVHpQTm1TbEtacVovRUFER01QbzJZUGdOZ09FUFFBK2p6NStoQTJEMHd3ZGdiQ1BQb1NIWEZ5TWZPQUJ6R3UyVndIQWJBTU1mZ0lwR20wOURCY0JvaHd0QWxwSG0xQkRyaXBFT0ZBQ1dwZjRyZ2ZJYkFNTWZnQkZWbjErbEE2RDY0UUhBSlpYbldOa0FxSHhvQUhDcnF2T3NaQUJVUFN3QXVFZkZ1Vll1QUNvZUVnQThxdHA4S3hVQTFRNEhBTFpVYWM2VkNZQktod0lBZTZreTcwb0VRSlhEQUlBV0tzeTk3Z0ZRNFJBQW9MWGU4NjlyQVBUKzhnRFFVODg1MkMwQURIOEE2RGNQdXdTQTRROEFQL1NZaTgwRHdQQUhnSmRhejhlbUFXRDRBOEI1TGVka3N3QXcvQUhndWxienNra0FHUDRBY0xzV2M3UDczd0VBQU5yYlBRQTgvUVBBZW52UHoxMER3UEFIZ1B2dE9VZDNDd0RESHdBZXQ5Yzg5UnNBQUFpMFN3QjQrZ2VBN2V3eFZ6Y1BBTU1mQUxhMzlYemROQUFNZndEWXo1WnoxbThBQUNEUVpnSGc2UjhBOXJmVnZOMGtBQXgvQUdobmk3bnJGUUFBQkhvNEFEejlBMEI3ajg1Zkd3QUFDUFJRQUhqNkI0QitIcG5EZHdlQTRROEEvZDA3ajcwQ0FJQkFkd1dBcDM4QXFPT2V1V3dEQUFDQlZnZUFwMzhBcUdmdGZMWUJBSUJBcXdMQTB6OEExTFZtVHRzQUFFQ2dtd1BBMHo4QTFIZnJ2TFlCQUlCQU53V0FwMzhBR01jdGM5c0dBQUFDQ1FBQUNIUTFBS3ovQVdBODErYTNEUUFBQkxvWUFKNytBV0JjbCthNERRQUFCQklBQUJEb2JBQlkvd1BBK003TmN4c0FBQWdrQUFBZzBNa0FzUDRIZ0htY211czJBQUFRU0FBQVFLQVhBV0Q5RHdEek9aN3ZOZ0FBRUVnQUFFQWdBUUFBZ1g0S0FPLy9BV0JleitlOERRQUFCQklBQUJCSUFBQkFvTzhCNFAwL0FNenZNTzl0QUFBZ2tBQUFnRUFDQUFBQ0NRQUFDUFMwTEg0QUNBQnBiQUFBSUpBQUFJQkFBZ0FBQWdrQUFBZ2tBQUFna0FBQWdFQUNBQUFDdmZJM0FBQWdqdzBBQUFRU0FBQVFTQUFBUUNBQkFBQ0JCQUFBQkJJQUFCQklBQUJBSUFFQUFJRUVBQUFFRWdBQUVFZ0FBRUFnQVFBQWdRUUFBQVFTQUFBUVNBQUFRS0RYdlQ4QTJUNzk4YjczUjRqeC91T24zaDhCS09UcHpkdDMzM3AvQ0RJWTl2V0lBc2dsQU5pTmdUOGVRUUE1QkFDYk0vakhKd1JnZmdLQVRSajY4eElETUNjQndFTU0vaHhDQU9ZaUFMaUx3WjlMQ01BYy9CMEFWalA4cy9uM2h6bllBSEF6TjM2TzJRYkF1R3dBdUluaHp5bXVDeGlYQU9BcU4za3VjWDNBbUx3QzRDdzNkdGJ5U2dER1lRUEFTWVkvOTNEZHdEZ0VBQys0aWZNSTF3K01RUUR3RXpkdnR1QTZndm9FQU4rNWFiTWwxeFBVSmdCWWxzWE5tbjI0cnFBdUFZQ2JOTHR5ZlVGTkFnQUFBZ21BY0o3T2FNRjFCdlVJZ0dCdXlyVGtlb05hQkVBb04yTjZjTjFCSFFJQUFBSUpnRUNld3VqSjlRYzFDSUF3YnI1VTREcUUvZ1FBQUFRU0FFRThkVkdKNnhINkVnQUFFRWdBaFBDMFJVV3VTK2hIQUFCQUlBRUFBSUVFUUFCclZpcHpmVUlmQWdBQUFnbUF5WG02WWdTdVUyaFBBQUJBSUFFQUFJRUVBQUFFRWdBVDgxNlZrYmhlb1MwQkFBQ0JCQUFBQkJJQUFCQklBQUJBSUFFd0tUK29Za1N1VzJoSEFBQkFJQUVBQUlFRUFBQUVFZ0FBRUVnQUFFQWdBUUFBZ1FRQUFBUVNBQUFRU0FBQVFDQUJBQUNCQkFBQUJCSUFBQkJJQUFCQUlBRUFBSUVFQUFBRUVnQUFFRWdBQUVBZ0FRQUFnUVFBQUFRU0FBQVFTQUFBUUNBQkFBQ0JCQUFBQkJJQUFCQklBQUJBSUFFQUFJRUVBQUFFRWdBQUVFZ0FBRUFnQVFBQWdRUUFBQVFTQUFBUVNBQUFRQ0FCQUFDQkJBQUFCQklBQUJCSUFBQkFJQUVBQUlFRUFBQUVFZ0FBRUVnQUFFQWdBUUFBZ1FRQUFBUVNBQUFRU0FBQVFDQUJBQUNCQkFBQUJCSUFBQkJJQUFCQUlBRUFBSUVFQUFBRUVnQUFFRWdBQUVBZ0FRQUFnUVFBQUFRU0FBQVFTQUFBUUNBQkFBQ0JCQUFBQkhyZCt3TUE5ZnoxKzUvLzlmcHZmL2o5ejE3LzZTNysrZlczWDNwL0JqSUpBQWpYYzlpekxCLysvZnZGK1lzQ1doQUFFTWJBcis4NENnUUJleEFBRU1MZ0g5Y2hDSVFBV3hJQU1ERkRmeTdQTndOaWdFY0pBSmlRd1Q4L1d3RWVKUUJnSWdaL0hpSEF2ZndkQUppRTRaL3QxUDlOQUpmWUFNRGdESDRPYkFOWXd3WUFCbWI0YzRwdEFMY1FBREFvdzU5TFJBRFhlQVVBZ3pINHVaVlhBbHhpQXdBRE1meTVoMjBBcHdnQUdJVGh6eU5FQU1jRUFBekE4R2NMSW9EbkJBQVVaL2l6SlJIQWdRQ0F3Z3gvOWlBQ1dCWUJBR1VaL3V4SkJDQUFBQ0NRQUlDQ1BQM1RnaTFBTmdFQXhSait0Q1FDY2drQUtNVHdwd2NSa0VrQUFFQWdBUUJGZVBxbkoxdUFQQUlBQ2pEOHFVQUVaQkVBQUJCSUFFQm5udjZweEJZZ2h3QUFnRUFDQURyeTlFOUZ0Z0FaQkFBQUJCSUFBQkJJQUV6cS9jZFB2VDhDVjFqL1U1blhBUE1UQUFBUVNBQkFCNTcrR1lFdHdOd0VBQUFFRWdBQUVFZ0FUTXdQQVFFNFJ3QkFZOTcvTXhLL0E1aVhBQUNBUUFJQUFBSUpnTW41SFFBQXB3Z0FBQWdrQUFMWUF0VGhCNENNeUE4QjV5UUFBQ0NRQUFDQVFBSWdoTmNBQUR3bkFBQWdrQUFJWWdzQXdJRUFBSUJBQWlDTUxRQUF5eUlBSW9rQUFBUUFBQVFTQUtGc0FRQ3lDWUJnSWdBZ2x3QUlKd0lBTWdrQUFBZ2tBTEFGQUFna0FGaVdSUVFBcEJFQWZDY0NBSElJQUg0aUFnQXlDQUJlRUFFQTh4TUFuQ1FDQU9ZbUFEanIvY2RQUWdCZ1VnS0FxMFFBd0h3RUFEY1JBUUJ6RVFEY3pDc0JnSGtJQUZZVEFRRGpFd0RjeFRZQVlHd0NnSWNJQVlBeHZlNzlBWmpEOHdqNDlNZjdqcDhFZ0Z2WUFMQTVXd0dBK213QTJNMXhCTmdNQU5RaEFHam0xRlpBRkFEMElRRG9LdTFWd1lmZi8rejlFUUNXWmZFYkFBQ0lKQUFBSUpBQUFJQkFBZ0FBQWdrQUFBZ2tBQUFna0FBQWdFQUNBQUFDQ1FBQUNDUUFBQ0NRQUFDQVFBSUFBQUlKQUFBSUpBQUFJSkFBQUlCQUFnQUFBZ2tBQUFna0FBQWdrQUFBZ0VBQ0FBQUNDUUFBQ0NRQUFDQ1FBQUNBUUFJQUFBSUpBQUFJSkFBQUlKQUFBSUJBQWdBQUFna0FBQWdrQUFBZ2tBQUFnRUFDQUFBQ0NRQUFDQ1FBQUNDUUFBQ0FRQUlBQUFJSkFBQUlKQUFBSUpBQUFJQkFBZ0FBQWdrQUFBZ2tBQUFna0FBQWdFQUNBQUFDQ1FBQUNDUUFBQ0NRQUFDQVFBSUFBQUlKQUFBSUpBQUFJSkFBQUlCQUFnQUFBZ2tBQUFna0FBQWdrQUFBZ0VBQ0FBQUNDUUFBQ0NRQUFDQ1FBQUNBUUFJQUd2cm4xOTkrNmYwWllDM1g3WndFQUFBRUVnQUFFRWdBQUVBZ0FRQUFnUVFBTk9ZSFZZekU5VG92QVFBQWdRUUFBQVFTQUFBUVNBQkFCOTZyTWdMWDZkd0VBQUFFRWdEUWlhY3JLbk45ems4QUFFQWdBUUFBZ1FRQWRHVE5Ta1d1eXd3Q0FBQUNDUURvek5NV2xiZ2Vjd2dBQUFna0FLQUFUMTFVNERyTUlnQ2dDRGRmZW5MOTVSRUFBQkJJQUVBaG5zTG93WFdYU1FCQU1XN0d0T1I2eXlVQW9DQTNaVnB3bldVVEFBQVFTQUJBVVo3TzJKUHJDd0VBaGJsSnN3ZlhGY3NpQUtBOE4ydTI1SHJpUUFEQUFOeTAyWUxyaU9jRUFBekN6WnRIdUg0NEpnQmdJRzdpM01OMXd5bFBiOTYrKzliN1F3RHJmZmozNy85NmZ3WnFNL2k1eEFZQUJ1WG16aVd1RDY0UkFEQXdOM2xPY1Yxd0M2OEFZQkplQ1dEd3M0WU5BRXpDelQrYmYzL1dzZ0dBQ2RrRzVERDR1WmNBZ0lrSmdYa1ovRHhLQUVBSU1UQStRNTh0Q1FBSUl3VEdZL0N6QndFQTRRUkJQUVkrTFFnQTRBVlIwSTVoVHk4Q0FBQUMrVHNBQUJCSUFBQkFJQUVBQUlFRUFBQUVFZ0FBRUVnQUFFQWdBUUFBZ1FRQUFBUVNBQUFRU0FBQVFDQUJBQUNCQkFBQUJCSUFBQkJJQUFCQUlBRUFBSUZlZmYzeSthbjNod0FBMnJJQkFJQkFBZ0FBQWdrQUFBZ2tBQUFna0FBQWdFQUNBQUFDQ1FBQUNQUnFXWmJGM3dJQWdCeGZ2M3grc2dFQWdFQUNBQUFDQ1FBQUNDUUFBQ0RROXdEd1EwQUFtTjloM3RzQUFFQWdBUUFBZ1FRQUFBVDZLUUQ4RGdBQTV2Vjh6dHNBQUVBZ0FRQUFnUVFBQUFSNkVRQitCd0FBOHptZTd6WUFBQkJJQUFCQW9KTUI0RFVBQU16ajFGeTNBUUNBUUFJQUFBS2REUUN2QVFCZ2ZPZm11UTBBQUFRU0FBQVE2R0lBZUEwQUFPTzZOTWR0QUFBZzBOVUFzQVVBZ1BGY205ODJBQUFRU0FBQVFLQ2JBc0JyQUFBWXh5MXoyd1lBQUFMZEhBQzJBQUJRMzYzejJnWUFBQUt0Q2dCYkFBQ29hODJjdGdFQWdFQ3JBOEFXQUFEcVdUdWZiUUFBSU5CZEFXQUxBQUIxM0RPWGJRQUFJTkRkQVdBTEFBRDkzVHVQSDlvQWlBQUE2T2VST2V3VkFBQUVlamdBYkFFQW9MMUg1NjhOQUFBRTJpUUFiQUVBb0owdDV1NW1Hd0FSQUFENzIycmVlZ1VBQUlFMkRRQmJBQURZejVaemR2TU5nQWdBZ08xdFBWOTNlUVVnQWdCZ08zdk1WYjhCQUlCQXV3V0FMUUFBUEc2dmVicnJCa0FFQU1EOTlweWp1NzhDRUFFQXNON2U4OU52QUFBZ1VKTUFzQVVBZ051MW1Kdk5OZ0FpQUFDdWF6VXZtNzRDRUFFQWNGN0xPZG44TndBaUFBQmVhajBmdS93SVVBUUF3QTg5NW1LMy93dEFCQUJBdjNuWTlYOERGQUVBSk9zNUI3di9IUUFSQUVDaTN2T3Zld0FzUy85REFJQ1dLc3k5RWdHd0xEVU9Bd0QyVm1YZWxRbUFaYWx6S0FDd2gwcHpybFFBTEV1dHd3R0FyVlNiYitVQ1lGbnFIUklBUEtMaVhDc1pBTXRTODdBQVlLMnE4NnhzQUN4TDNVTURnRnRVbm1PbEEyQlphaDhlQUp4VGZYNlYvbkRIM3J4OTk2MzNad0NBUzZvUC9vUHlHNERuUmpsVUFES05OS2VHQ29CbEdldHdBY2d4Mm53YTZzTWU4MG9BZ041R0cvd0h3MjBBbmh2MTBBR1l3OGh6YU9nQVdKYXhEeCtBY1kwK2Y0Yis4TWU4RWdCZ2I2TVAvb1BoTndEUHpmS1BBa0JOTTgyWmFiN0lNZHNBQUxZeTArQS9tTzRMSFJNQ0FOeHJ4c0YvTU5VcmdGTm0vc2NEWUQreno0K3B2OXd4MndBQXJwbDk4QjlFZk1salFnQ0FZeW1EL3lEcXl4NFRBZ0NrRGY2RHlDOTlUQWdBNUVrZC9BZlJYLzZZRUFDWVgvcmdQM0FJWjRnQmdIa1kraTg1a0N1RUFNQzREUDd6SE13S1lnQ2dQa1AvTmc3cFRtSUFvQTVEZnowSHRnRXhBTkNlb2Y4WWg3Y0RRUUN3UFFOL1d3NnpBVUVBc0o2QnZ5K0gyNGtvQVBqQnNHL3ZmeXBDb2F6SHFtSmxBQUFBQUVsRlRrU3VRbUNDIiwgInNpemVzIjogIjUxMng1MTIiLCAidHlwZSI6ICJpbWFnZS9wbmciLCAicHVycG9zZSI6ICJhbnkifSwgeyJzcmMiOiAiZGF0YTppbWFnZS9wbmc7YmFzZTY0LGlWQk9SdzBLR2dvQUFBQU5TVWhFVWdBQUFNQUFBQURBQ0FZQUFBQlMzR3dIQUFBRXdVbEVRVlI0bk8zZHpXMVVTUlNBMFdJMElTQWhKREx4bmdVUklGWWtRQmlUQjBzaVlNSGVtU0FoSkhKZ0ZxaG5lbHBtMUhhL3Fyby81K3pCVmEvdTUzcHRXVEFHQUFBQUFBQUFBQUFBQUFBQUFBQUFBRUFvejNZdllLWG5MMTc5M0wyR0xINTgvOXBpTnNwdTByQWZyMklVcFRaazZOZXBFa09KVFJqOGZiS0hrSHJ4QmorT3JDR2tYTFRCanl0YkNLa1dhL0R6eUJMQ0g3c1hjQzNEbjB1Vzh3cGZhWllIeWU5RnZnMUMzd0NHdjRiSTV4ZzJnTWdQamNlTGVwNGhBNGo2c0xoTnhITU5GMERFaDhSeG9wMXZxQUNpUFJ6bWlIVE9ZUUtJOUZDWUw4cDVod2dneXNOZ3JRam52ajJBQ0ErQmZYYWYvOVlBZG0rZUdIYk93ZlliQUhiYUZvRHYvcHpiTlE5YkFqRDhQR1RIWFB5NStndnVjdi8rYnZjU0huVDM4WDczRWxwYi9sdDZLeXVQT3ZTL0k0WmZWdjcyYU1rQXNnMytwZTRockF4ZzZXY0F3MytkQ251NHhjcTNoRkkvQnEwME9KWDJFdG15QUdaWFhYRmdLdTdwV3F0dWdSSTNRT1ZCcWJ5M0NKWUVNTFBtRGdQU1lZOFBXWEVMcEw0Qk9nMUdwNzJ1bERhQWpnUFJjYyt6VFEvQXJ6MXdpOW56ay9JRzZQeWRzUFBlWjBnWkFCeEZBTFNXTGdDdkFKN0JrYVlHNEFNd1I1ZzVSK2x1QURpU0FHaE5BTFFtQUZvVEFLMEpnTllFUUdzQ29EVUIwSm9BYUUwQXRDWUFXaE1BclFtQTFnUkFhd0tnTlFIUW1nQm9UUUMwSmdCYUV3Q3RDWURXQkVCcmJmNmIxTWorZXZmaDIyUC96SnQzSDJZczVUOCt2Mzc3Y3ZvWDJVd0FtenhsNkZkNzgrWFRQMnVzR29NQUZzc3crQTg1eFZBdEJKOEJGc282L09mT2I0VUtCTEJJaGVFL3FSU0JBQmFvTlB3blZTSVF3R1FWaC8ra1FnUUNtS2p5OEo5a2owQUFrM1FZL3BQTUVRaGdnazdEZjVJMUFnSFFtZ0FPMXZHNy8wbkdXMEFBdEpZdWdMdVA5N3VYUUNIcEFvaXM4K3ZQU2JiWElBSFFXc29BdkFaeGxKUUJ3RkhTQnVBVzRBaHBBeGhEQk53dWRRQmppSURicEE5Z0RCSHdkQ1VDR0VNRVBFMlpBTVlRQVk5WEtvQXhSTURqbEF0Z2pGOFJDSUZybFA1M2djNGp1SDkvdDNFbFJGVTZnSE1yYm9RVi8xd2h4eXI1Q2dUWEVnQ3RDWURXQkVCckFxQTFBZENhQUdoTkFMUW1BRm9UQUswSmdOWUVRR3NDb0RVQjBKb0FhRTBBdENZQVdoTUFyUW1BMWdSQWF3S2dOUUhRbWdCb2JXb0FQNzUvZlRiejc2ZUhtWFBrQmpqUTU5ZHZYKzVldzI3Wm5vRUFhRTBBdENhQWcyVjdCVGhTeHIxUEQ4QUhZVzR4ZTM3Y0FCTmsvRTU0cTZ4N0ZzQWtXUWZpS1RMdmRVa0FYVitETWcvR3RXYnVjY1hjdUFFbXF4eEJoYjB0QzZEckxUQkdqVUc1Tkh0UHErYkZEYkJJcFFncTdXVnBBSjF2Z1RGcURNNktQYXljaytVRCtmekZxNStydjJaRWI3NTgrclo3RFkreE10N1NBWXdoZ2t0Ulk5aHhZNjErU3hBQW9hd09ZTXVINE82ZkJYallqcm5ZOWxNZ0VYQnUxeno0TVNpdGJRM0FMY0FZZStkZyt3MGdndDUybi8vMkFNYlkveERZSThLNWh3aGdqQmdQZzNXaW5IZVlBTWFJODFDWUs5STVod3BnakZnUGgrTkZPOTl3QVl3Ujd5RnhqSWpuR2pLQU1XSStMSjR1Nm5tR0RXQ011QStOeDRsOGptRVhkc2t2ME9VVGVmQlBRdDhBNXpJOFRQNlY1YnhTTFBLUzJ5Q3VMSU4va21xeGw0UVFSN2JCUDBtNTZFdEMyQ2ZyNEora1h2d2xJYXlUZmZCUFNtemlJV0k0WHBXaFAxZHVRLzlIRk5lck9Pd0FBQUFBQUFBQUFBQUFBQUFBQUFBQVpQRTNVblp3Tmg3OENWZ0FBQUFBU1VWT1JLNUNZSUk9IiwgInNpemVzIjogIjE5MngxOTIiLCAidHlwZSI6ICJpbWFnZS9wbmciLCAicHVycG9zZSI6ICJtYXNrYWJsZSJ9LCB7InNyYyI6ICJkYXRhOmltYWdlL3BuZztiYXNlNjQsaVZCT1J3MEtHZ29BQUFBTlNVaEVVZ0FBQWdBQUFBSUFDQVlBQUFEMGVOVDZBQUFOdzBsRVFWUjRuTzNjejQwVVZ4Zkc0ZUtUUTBCQ2xzaUV2UmRFWUxGeUFvVGhQRmc2QWkrOEp4TWtDNGtjK0JZWVpvYXA3cTdxK25QUHZlL3pKT0JXOSsxemZuMXJ6RFFCQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQU5QQ2k5UXVBNzE2K2V2MjE5V3VBTTN6NS9NbnNwVG1Ia05OWThMQ01RT0FNRGhtSHNPeGhYNktBdlRsUTdNTENoM01KQXJaeWdMaUxoUSsxQ0FMV2NtQll6TktIUG9nQmxuQkl1TXJTaDc2SkFTNXhNSGpHMG9jeGlRRWVjeGo0d2VLSERFS0FhUklBOFN4OXlDWUdjdm5nUTFuOHdHTkNJSThQUEl6RkQxd2pCSEw0b0VOWS9NQWFRbUI4UHVEQldmekFGa0pnWEQ3WVFWbjh3SjZFd0hqKzEvb0ZzRC9MSDlpYnVUSWVSVGNRWDFEZ0RHNER4dUJESElERkQ3UWdCUHJtRVVEbkxIK2dGZk9uYitxdFU3NTRRQ1Z1QS9yakJxQkRsajlRamJuVUh3SFFHVjh5b0NyenFTK3ViRHJoaXdYMHhDT0IrdHdBZE1EeUIzcGpidFVuQUlyekpRSjZaWDdWNW9xbUtGOGNZQ1FlQ2RUakJxQWd5eDhZamJsV2p3QW94cGNFR0pYNVZvc0FLTVNYQXhpZE9WZUhBQ2pDbHdKSVlkN1ZJQUFLOEdVQTBwaDc3UW1BeG53SmdGVG1YMXNDb0NHSEgwaG5EcllqQUJweDZBRytNUS9iRUFBTk9Pd0FUNW1MNXhNQUozUElBZWFaaitjU0FDZHl1QUd1TXlmUEl3Qk80bEFETEdOZW5rTUFuTUJoQmxqSDNEeWVBRGlZUXd4d0gvUHpXQUxnUUE0dndEYm02SEVFd0VFY1dvQjltS2ZIRUFBQUVFZ0FIRUN0QXV6TFhOMmZBTmlaUXdwd0RQTjFYd0pnUnc0bndMSE0yZjBJQUFBSUpBQjJva29Cem1IZTdrTUE3TUJoQkRpWHVidWRBTmpJSVFSb3cvemRSZ0FBUUNBQnNJSDZCR2pMSEw2ZkFMaVRRd2RRZzNsOEh3RUFBSUVFd0IzVUprQXQ1dko2QWdBQUFnbUFsVlFtUUUzbTh6b3ZXcitBbmpoYysvdjR4NXZXTHlIR213OGZXNzhFT01XWHo1L3N0Z1c4U1NzSWdHMHMrM3BFQVNNU0FNdDRreGF5L05lejhQc2pDQmlGQ0xqTkc3U1FBRmpPNHUrZkVLQjNBdUEyYjlBQ2x2OXRsdjY0eEFDOUVnSFhlWE1XRUFDWFdmdzVoQUM5RVFEWGVYTnVzUHpuV2Z5NWhBQTlFUUdYK1hjQVdNM3l6K2J6aHpFb295djgrbi9LNE9kbmJnUG9nVnVBZVc0QVdNVHlaNDV6QWYwU0FCZjQ5Zi9Ba09jYTU0UHF6UE41cmtVdWNHQU1kdGJ6U0lDcVBBWjR6ZzBBc3l4Lzd1SGNRRDhFd0l6MFgvK0dPRnM0UDFTVVB0Zm5DQUNlTUx6WmczTUU5UW1BbnlSWG9xSE5ucHducWttZTczTUVBTk0wR2RZY3c3bUN1Z1FBaGpTSGNyNmdKZ0h3aU9zaGdMR1o4dzhFUURpL3pqaURjd2IxQ0lCZ2hqSm5jdDZnRmdId243UnJJY09ZRnB3N0traWI5NWNJQUFBSUpBQUMrUlZHUzg0ZjFDQUFwcXpySU1PWENweERXa3VhKzVjSUFBQUlKQUNDK05WRkpjNGp0Q1VBQUNCUWZBQ2tQQWZ5YTR1S25FdGFTcG4vbDhRSEFBQWtFZ0FBRUVnQUJIRE5TbVhPSjdRUkhRRHB6MzhBMGlYdmdlZ0FTT0RYRlQxd1R1RjhBZ0FBQWdrQUFBZ2tBQUFnVUd3QUpQemhoK2VxOU1SNXBaV0VmVEFuTmdBQUlKa0FBSUJBQWdBQUFna0FBQWdrQUFibEQ2cm9rWE1MNXhFQUFCQklBQUJBb01nQVNQMS9QZ0dZbDdnWElnTUFBTklKQUFBSUpBQUFJSkFBQUlCQUFnQUFBZ2tBQUFna0FBQWdrQUFBZ0VBQ0FBQUNDUUFBQ0NRQUFDQ1FBQUNBUUFJQUFBSUpBQUFJSkFBQUlKQUFBSUJBQWdBQUFna0FBQWdrQUFBZ2tBQUFnRUFDQUFBQ0NRQUFDQ1FBQUNDUUFBQ0FRQUlBQUFJSkFBQUlKQUFBSUpBQUFJQkFBZ0FBQWdrQUFBZ2tBQUFna0FBQWdFQUNBQUFDQ1FBQUNDUUFBQ0NRQUFDQVFBSUFBQUlKQUFBSUpBQUFJSkFBQUlCQUFnQUFBZ2tBQUFna0FBQWdrQUFBZ0VBQ0FBQUNDUUFBQ0NRQUFDQ1FBQUNBUUFJQUFBSUpBQUFJSkFBQUlKQUFBSUJBQWdBQUFna0FBQWdrQUFBZ2tBQUFnRUMvdEg0QlFEMS92bnYvYjZ2Lzl0dDM3MXY5cDV2NCs3ZmZmMjM5R3Nna0FDQmN5MlhQTkwzOTU2OW43NzhvNEF3Q0FNSlkrUFg5SEFXQ2dDTUlBQWhoOGZmcmV4QUlBZllrQUdCZ2x2NVlIdDhNaUFHMkVnQXdJSXQvZkc0RjJFb0F3RUFzL2p4Q2dIdjVkd0JnRUpaL3Rybi9td0N1Y1FNQW5iUDQrYzV0QUd1NEFZQ09XZjdNY1J2QUVnSUFPbVg1YzQwSTRCYVBBS0F6Rmo5TGVTVEFOVzRBb0NPV1AvZHdHOEFjQVFDZHNQelpRZ1R3TXdFQUhiRDgyWU1JNERFQkFNVlovdXhKQlBDZEFJRENMSCtPSUFLWUpnRUFaVm4rSEVrRUlBQUFJSkFBZ0lMOCt1Y01iZ0d5Q1FBb3h2TG5UQ0lnbHdDQVFpeC9XaEFCbVFRQUFBUVNBRkNFWC8rMDVCWWdqd0NBQWl4L0toQUJXUVFBQUFRU0FOQ1lYLzlVNGhZZ2h3QUFnRUFDQUJyeTY1K0szQUprRUFBQUVFZ0FBRUFnQVRDb054OCt0bjRKM09ENm44bzhCaGlmQUFDQVFBSUFHdkRybng2NEJSaWJBQUNBUUFJQUFBSUpnSUg1UTBBQUxoRUFjRExQLyttSnZ3TVlsd0FBZ0VBQ0FBQUNDWURCK1RzQUFPWUlBQUFJSkFBQ3VBV293eDhBMGlOL0NEZ21BUUFBZ1FRQUFBUVNBQ0U4QmdEZ01RRUFBSUVFUUJDM0FBQjhKd0FBSUpBQUNPTVdBSUJwRWdDUlJBQUFBZ0FBQWdtQVVHNEJBTElKZ0dBaUFDQ1hBQWduQWdBeUNRQUFDQ1FBY0FzQUVFZ0FNRTJUQ0FCSUl3RDRRUVFBNUJBQVBDRUNBRElJQUo0UkFRRGpFd0RNRWdFQVl4TUFYUFRtdzBjaEFEQW9BY0JOSWdCZ1BBS0FSVVFBd0ZnRUFJdDVKQUF3RGdIQWFpSUFvSDhDZ0x1NERRRG9td0JnRXlFQTBLZGZXcjhBeHZBNEFqNys4YWJoS3dGZ0NUY0E3TTZ0QUVCOWJnQTR6TThSNEdZQW9BNEJ3R25tYmdWRUFVQWJBb0NtMGg0VnZIMzN2dlZMQUppbXlkOEFBRUFrQVFBQWdRUUFBQVFTQUFBUVNBQUFRQ0FCQUFDQkJBQUFCQklBQUJCSUFBQkFJQUVBQUlFRUFBQUVFZ0FBRUVnQUFFQWdBUUFBZ1FRQUFBUVNBQUFRU0FBQVFDQUJBQUNCQkFBQUJCSUFBQkJJQUFCQUlBRUFBSUVFQUFBRUVnQUFFRWdBQUVBZ0FRQUFnUVFBQUFRU0FBQVFTQUFBUUNBQkFBQ0JCQUFBQkJJQUFCQklBQUJBSUFFQUFJRUVBQUFFRWdBQUVFZ0FBRUFnQVFBQWdRUUFBQVFTQUFBUVNBQUFRQ0FCQUFDQkJBQUFCQklBQUJCSUFBQkFJQUVBQUlFRUFBQUVFZ0FBRUVnQUFFQWdBUUFBZ1FRQUFBUVNBQUFRU0FBQVFDQUJBQUNCQkFBQUJCSUFBQkFvTWdDK2ZQNzBvdlZyQUtDT3hMMFFHUUFBa0U0QUFFQWdBUUFuK3Z1MzMzOXQvUnBnTGVkMlRBSUFBQUlKQUFBSUpBQUFJSkFBQUlCQXNRR1ErUDk4VW9NL3FLSW5DZWMxZFIvRUJnQUFKQk1BQUJCSUFBQkFJQUVBRFNROFY2Vi96dW5Zb2dNZzlROC9BUGdtZVE5RUJ3QzA1TmNWbFRtZjR4TUFBQkJJQUFCQW9QZ0FTSDcrUTN1dVdha281Vnltei8vNEFBQ0FSQUlBR2t2NXRVVWZuTWNjQWdBQUFnbUF5WE1nMnZPcml3cVN6cUc1THdDZ2pLVGhTejNPWHg0QkFBQ0JCTUIvWEFkUmdWOWh0SkIyN3N6N2J3UUFGSk0yakduTGVjc2xBS0FnUTVrek9HZlpCTUFqcm9VQXhtYk9QeEFBVUpSZlp4ekorVUlBUUdHR05FZHdycGdtQWZDTTZ5R3FNYXpaVS9KNU10K2ZFZ0RRZ2VTaHpYNmNJeDRUQUROVUloVVozbXlSZm43TTllY0VBSFFrZlloekgrZUdPWXJvZ3BldlhuOXQvUnJnbXJmLy9QVnY2OWRBYlJiL0F6Y0F6N2tCdU1CaG9UckRuV3VjandmbStUd0JBQjB6NUpualhMQ0VLcnJCb3dCNjRaRUFGdjl6ZnYxZjVnWUFCbUg0Wi9QNXM1WXlXc0F0QUwxeEc1REQ0ci9Nci8vcnZEa0xDQUI2SlFUR1pmSGZKZ0N1OCtZc0pBTG9uUmpvbjZXL25PVi9temRvSVFIQUtJUkFmeXorOVFUQWJkNmdGVVFBSXhJRTlWajQyMWoreTNpVFZoQUFwQkFGNTdIczl5Y0FsdkVtclNRQ0FPcXkvSmZ6N3dDczVIQUIxR1ErcnlNQUFDQ1FBTGlEeWdTb3hWeGVUd0FBUUNBQmNDZTFDVkNEZVh3ZkFiQ0JRd2ZRbGpsOFB3RUFBSUVFd0VicUU2QU44M2NiQWJBRGh4RGdYT2J1ZGdKZ0p3NGp3RG5NMjMwSUFBQUlKQUIycEVvQmptWE83a2NBN016aEJEaUcrYm92QVhBQWh4UmdYK2JxL2dRQUFBUVNBQWRScXdEN01FK1BJUUFPNU5BQ2JHT09Ia2NBSE16aEJiaVArWGtzQVhBQ2h4aGdIWFB6ZUFMZ0pBNHp3RExtNVRrRXdJa2Nhb0Ryek1uekNJQ1RPZHdBODh6SGN3bUFCaHh5Z0tmTXhmTUpnRVljZG9CdnpNTTJCRUJERGoyUXpoeHNSd0EwNXZBRHFjeS90Z1JBQWI0RVFCcHpyejBCVUlRdkE1REN2S3RCQUJUaVN3R016cHlyUXdBVTQ4c0JqTXA4cTBVQUZPUkxBb3pHWEt2SEIxTGN5MWV2djdaK0RRRDNzdmpyY2dOUW5DOFAwQ3Z6cXpZQjBBRmZJcUEzNWxaOVBxRE9lQ1FBVkdieDk4TU5RR2Q4dVlDcXpLZStDSUFPK1pJQjFaaEwvZkdCZGM0akFhQWxpNzlmYmdBNjU4c0h0R0wrOU0ySE54QzNBY0FaTFA0eCtCQUhKQVNBSTFqOFkvRUlZRUMrcE1EZXpKWHgrRUFINXpZQTJNTGlINWNQTm9RUUFOYXcrTWZuQXc0akJJQnJMUDRjUHVoUVFnQjR6T0xQNHdNUEp3UWdtOFdmeXdmUEQySUFNbGo2VEpNQVlJWVFnREZaL0R6bU1IQ1ZHSUMrV2ZwYzRtQ3dtQmlBUGxqNkxPR1FjQmN4QUxWWStxemx3TEFMUVFEbnN2RFp5Z0hpRUlJQTltWGhzemNIaXRPSUFsakdzdWNNRGhsbENBUlNXUEFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQVBETi93RXhsN1JYY01Yc1hBQUFBQUJKUlU1RXJrSmdnZz09IiwgInNpemVzIjogIjUxMng1MTIiLCAidHlwZSI6ICJpbWFnZS9wbmciLCAicHVycG9zZSI6ICJtYXNrYWJsZSJ9XX0=">
+<link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAE80lEQVR4nO3dQW7USACF4epojoCEkLhJ9ixyAsSKC3CMuQdLTsCCfW4SCUXKHZjFyFEndJJ2u1x21fu+PcRG73e5EwSHsjPv3n/8s/U1sK6H+7vD1tcw2fRCjJ3JVlE0/6JGz1taxtDsCxk+c7UIYfUvYPgstWYIq/3Ghk9ta4RQ/Tc0fNZWM4SrWr9RKcZPGzV3VqUkw2crS0+DxSeA8bOlpftbFIDxswdLdnhxAMbPnly6x4sCMH726JJdzg7A+NmzufucFYDx04M5Oz07AOOnJ+fu9awAjJ8enbPbNwMwfnr21n6r/lUI6M2rAXj6M4LXdvxiAMbPSF7as1cgop0MwNOfEZ3atROAaH8F4OnPyJ7v2wlAtCcBePqT4HjnTgCiPQbg6U+Sae9OAKIJgGiHUrz+kMsJQDQBEE0ARBMA0a58ACaZE4BoAiCaAIgmAKIJgGgCIJoAiPbP1hfQyu3X660v4aTr77dbX0K0w8g/CNvr6F8ihvaGDKC34T8nhHaG+wzQ+/hLGeMeejFUACMNZ6R72bNhAhhxMCPe094MEcDIQxn53vag+wASBpJwj1vpOoCkYSTda0vdBpA4iMR7Xlu3AUANXQaQ/CRMvvc1dBkA1CIAonUXgFcAfwY1dRcA1CQAogmAaAIgmgCIJgCiCYBoAiCaAIgmAKIJgGgCIJoAiCYAogmAaAIgmgCIJgCiCYBoAiCaAIgmAKIJgGgCIFrMf5O6Z/9++fZ77q+5+fJtjUt54uenzx9W/yIbE8BGLhl9aze/fjxe46gxCKCxHoZ/yhTDaCH4DNBQr+M/dnwqjEAAjYww/slIEQiggZHGPxklAgGsbMTxT0aIQAArGnn8k94jEMBKEsY/6TkCAawgafyTXiMQANEEUFni03/S4ykgAKJ1F8D199utL4GBdBfAniW//kx6ew0SANG6DMBrELV0GQDU0m0ATgFq6DaAUkTAcl0HUIoIWKb7AEoRAZcbIoBSRMBlhgmgFBEw31ABlCIC5hkugFL+j0AInGPofxfoOILbr9cbXgl7NXQAx1qcCC3+uULqGvIVCM4lAKIJgGgCIJoAiCYAogmAaAIgmgCIJgCiCYBoAiCaAIgmAKIJgGgCIJoAiCYAogmAaAIgmgCIJgCiCYBoAiCaACr6+enzh62vYWu9/RkIgGgCIJoAKuvtFaCmHu9dAEQTwAp6fBIu1es9C2AlvQ7iEj3fqwBW1PMwztX7PQpgZb0P5DUj3JsAGhhhKM+Nck8CaGSUwZQy1r0IoKERhjPCPRw7vHv/8c/WF5Ho5teP31tfwxyjDX8igB3Yawyjjv6YAIjmMwDRBEA0ARBNAEQTANEEQDQBEO3q4f7usPVFwFacAEQTANEEQDQBEO2qlFJ8ECbRw/3dwQlANAEQ7TEAr0EkmfbuBCDakwCcAiQ43rkTgGh/BeAUYGTP9+0EINrJAJwCjOjUrp0ARHsxAKcAI3lpz6+eACJgBK/t2CsQ0d4MwClAz97a71kngAjo0Tm7PfsVSAT05Ny9zvoMIAJ6MGensz8Ei4A9m7vPi74LJAL26JJdXvxtUBGwJ5fucdHPAUTAHizZ4eIfhImALS3dX9Xx+v/GaKXWg7fqX4VwGtBCzZ2tNlinAbWt8YBd/YktBJZa882i2SuLEJirxSt183d2IfCWlp8lN/3QKgYmW30D5T8Kp2GouLreygAAAABJRU5ErkJggg==">
+<link rel="apple-touch-icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAYAAABS3GwHAAAE80lEQVR4nO3dQW7USACF4epojoCEkLhJ9ixyAsSKC3CMuQdLTsCCfW4SCUXKHZjFyFEndJJ2u1x21fu+PcRG73e5EwSHsjPv3n/8s/U1sK6H+7vD1tcw2fRCjJ3JVlE0/6JGz1taxtDsCxk+c7UIYfUvYPgstWYIq/3Ghk9ta4RQ/Tc0fNZWM4SrWr9RKcZPGzV3VqUkw2crS0+DxSeA8bOlpftbFIDxswdLdnhxAMbPnly6x4sCMH726JJdzg7A+NmzufucFYDx04M5Oz07AOOnJ+fu9awAjJ8enbPbNwMwfnr21n6r/lUI6M2rAXj6M4LXdvxiAMbPSF7as1cgop0MwNOfEZ3atROAaH8F4OnPyJ7v2wlAtCcBePqT4HjnTgCiPQbg6U+Sae9OAKIJgGiHUrz+kMsJQDQBEE0ARBMA0a58ACaZE4BoAiCaAIgmAKIJgGgCIJoAiPbP1hfQyu3X660v4aTr77dbX0K0w8g/CNvr6F8ihvaGDKC34T8nhHaG+wzQ+/hLGeMeejFUACMNZ6R72bNhAhhxMCPe094MEcDIQxn53vag+wASBpJwj1vpOoCkYSTda0vdBpA4iMR7Xlu3AUANXQaQ/CRMvvc1dBkA1CIAonUXgFcAfwY1dRcA1CQAogmAaAIgmgCIJgCiCYBoAiCaAIgmAKIJgGgCIJoAiCYAogmAaAIgmgCIJgCiCYBoAiCaAIgmAKIJgGgCIFrMf5O6Z/9++fZ77q+5+fJtjUt54uenzx9W/yIbE8BGLhl9aze/fjxe46gxCKCxHoZ/yhTDaCH4DNBQr+M/dnwqjEAAjYww/slIEQiggZHGPxklAgGsbMTxT0aIQAArGnn8k94jEMBKEsY/6TkCAawgafyTXiMQANEEUFni03/S4ykgAKJ1F8D199utL4GBdBfAniW//kx6ew0SANG6DMBrELV0GQDU0m0ATgFq6DaAUkTAcl0HUIoIWKb7AEoRAZcbIoBSRMBlhgmgFBEw31ABlCIC5hkugFL+j0AInGPofxfoOILbr9cbXgl7NXQAx1qcCC3+uULqGvIVCM4lAKIJgGgCIJoAiCYAogmAaAIgmgCIJgCiCYBoAiCaAIgmAKIJgGgCIJoAiCYAogmAaAIgmgCIJgCiCYBoAiCaACr6+enzh62vYWu9/RkIgGgCIJoAKuvtFaCmHu9dAEQTwAp6fBIu1es9C2AlvQ7iEj3fqwBW1PMwztX7PQpgZb0P5DUj3JsAGhhhKM+Nck8CaGSUwZQy1r0IoKERhjPCPRw7vHv/8c/WF5Ho5teP31tfwxyjDX8igB3Yawyjjv6YAIjmMwDRBEA0ARBNAEQTANEEQDQBEO3q4f7usPVFwFacAEQTANEEQDQBEO2qlFJ8ECbRw/3dwQlANAEQ7TEAr0EkmfbuBCDakwCcAiQ43rkTgGh/BeAUYGTP9+0EINrJAJwCjOjUrp0ARHsxAKcAI3lpz6+eACJgBK/t2CsQ0d4MwClAz97a71kngAjo0Tm7PfsVSAT05Ny9zvoMIAJ6MGensz8Ei4A9m7vPi74LJAL26JJdXvxtUBGwJ5fucdHPAUTAHizZ4eIfhImALS3dX9Xx+v/GaKXWg7fqX4VwGtBCzZ2tNlinAbWt8YBd/YktBJZa882i2SuLEJirxSt183d2IfCWlp8lN/3QKgYmW30D5T8Kp2GouLreygAAAABJRU5ErkJggg==">
+<style>
+/*
+  LocalShare — visual language
+  Palette:  #14171c (base) / #1c2028 (panel) / #262c37 (raised)
+            #D97757 (clay accent, actions)  #5ED1C4 (teal accent, connected/success)
+            #E8484F (error)  #EDEFF3 (text-high)  #9AA3B2 (text-low)
+  Type:     Display — "Fraunces" fallback to serif for the hero line only (one moment of warmth)
+             Body/UI — system rounded sans, since this is a tool people use one-handed on a phone
+  Signature: soft two-tone "clay tiles that lock together" motif — pairing code digits and the
+             brand mark both use interlocking rounded squares, echoing the idea of two devices meeting.
+*/
+
+@font-face {
+  font-family: 'FrauncesFallback';
+  src: local('Georgia');
+}
+
+:root {
+  --bg: #14171c;
+  --panel: #1c2028;
+  --raised: #262c37;
+  --raised-2: #2e3540;
+  --clay: #D97757;
+  --clay-dim: #B4603F;
+  --teal: #5ED1C4;
+  --error: #E8484F;
+  --text-hi: #EDEFF3;
+  --text-lo: #9AA3B2;
+  --text-faint: #5C6472;
+  --radius-lg: 28px;
+  --radius-md: 18px;
+  --radius-sm: 12px;
+  --shadow-clay-out: 8px 8px 18px rgba(0,0,0,0.45), -6px -6px 16px rgba(255,255,255,0.02);
+  --shadow-clay-in: inset 4px 4px 10px rgba(0,0,0,0.5), inset -3px -3px 8px rgba(255,255,255,0.03);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: var(--bg);
+  color: var(--text-hi);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
+
+.app-shell {
+  max-width: 720px;
+  margin: 0 auto;
+  min-height: 100vh;
+  padding: env(safe-area-inset-top) 16px calc(env(safe-area-inset-bottom) + 16px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- Top bar ---------- */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 2px 18px;
+}
+
+.brand { display: flex; align-items: center; gap: 10px; }
+
+.brand-mark {
+  width: 26px; height: 26px; position: relative; display: inline-block;
+}
+.brand-mark::before, .brand-mark::after {
+  content: ''; position: absolute; width: 16px; height: 16px; border-radius: 6px;
+}
+.brand-mark::before { background: var(--clay); top: 2px; left: 0; }
+.brand-mark::after { background: var(--teal); bottom: 2px; right: 0; opacity: 0.9; }
+
+.brand-name { font-weight: 700; letter-spacing: -0.01em; font-size: 17px; }
+
+.conn-pill {
+  display: flex; align-items: center; gap: 7px;
+  padding: 7px 12px; border-radius: 999px;
+  background: var(--panel); box-shadow: var(--shadow-clay-in);
+  font-size: 12.5px; color: var(--text-lo);
+}
+.conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
+.conn-pill[data-state="connected"] .conn-dot { background: var(--teal); box-shadow: 0 0 8px var(--teal); }
+.conn-pill[data-state="connecting"] .conn-dot,
+.conn-pill[data-state="gathering"] .conn-dot,
+.conn-pill[data-state="awaiting-remote"] .conn-dot { background: var(--clay); animation: pulse 1.2s ease-in-out infinite; }
+.conn-pill[data-state="failed"] .conn-dot { background: var(--error); }
+
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* ---------- Screens ---------- */
+
+.screen { display: none; flex: 1; flex-direction: column; }
+.screen[data-active="true"] { display: flex; }
+
+/* ---------- Clay panel base ---------- */
+
+.clay {
+  background: var(--panel);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-clay-out);
+  padding: 28px 24px;
+}
+
+/* ---------- Hero / start screen ---------- */
+
+.hero-card { margin-top: 8px; }
+.hero-card h1 {
+  font-family: 'FrauncesFallback', Georgia, serif;
+  font-size: 30px;
+  line-height: 1.15;
+  margin: 4px 0 10px;
+  letter-spacing: -0.01em;
+}
+.hero-sub { color: var(--text-lo); font-size: 15px; line-height: 1.5; margin: 0 0 26px; }
+
+.how-it-works { list-style: none; margin: 0 0 24px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.how-it-works li { display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; color: var(--text-lo); line-height: 1.5; }
+.how-it-works strong { color: var(--text-hi); font-weight: 600; }
+.step-num {
+  flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%;
+  background: var(--raised); box-shadow: var(--shadow-clay-in);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: var(--teal); margin-top: 1px;
+}
+
+.role-row { display: flex; flex-direction: column; gap: 12px; }
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  border: none; cursor: pointer; font: inherit; font-weight: 600;
+  border-radius: var(--radius-md); padding: 13px 18px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  transition: transform 0.08s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+.btn:active { transform: scale(0.97); }
+
+.btn-primary {
+  background: linear-gradient(155deg, var(--clay), var(--clay-dim));
+  color: #1c1108;
+  box-shadow: 0 6px 16px rgba(217,119,87,0.28), var(--shadow-clay-out);
+}
+.btn-ghost {
+  background: var(--raised); color: var(--text-hi);
+  box-shadow: var(--shadow-clay-out);
+}
+.btn-text { background: transparent; color: var(--text-lo); padding: 10px 4px; font-weight: 500; }
+.btn.big { padding: 17px 20px; font-size: 15.5px; width: 100%; }
+.btn.sm { padding: 8px 12px; font-size: 13px; border-radius: var(--radius-sm); }
+.btn-glyph { font-size: 18px; line-height: 1; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ---------- Pairing screens ---------- */
+
+.pair-card h2 { font-size: 16px; margin: 0 0 6px; }
+.pair-card h2.step2 { margin-top: 26px; }
+.muted { color: var(--text-lo); font-size: 13.5px; line-height: 1.5; }
+.muted.small { font-size: 12.5px; }
+
+.code-display {
+  font-family: 'SF Mono', 'Roboto Mono', monospace;
+  font-size: 40px; font-weight: 700; letter-spacing: 0.14em;
+  text-align: center; color: var(--teal);
+  background: var(--raised); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-clay-in);
+  padding: 20px 10px; margin: 16px 0 6px;
+}
+.code-caption { text-align: center; color: var(--text-lo); font-size: 12.5px; margin: 0 0 20px; }
+
+.blob-row { display: flex; flex-direction: column; gap: 10px; margin-bottom: 6px; }
+.blob-box {
+  width: 100%; resize: vertical; font-family: 'SF Mono', 'Roboto Mono', monospace;
+  font-size: 12px; color: var(--text-lo); background: var(--raised);
+  border: none; border-radius: var(--radius-sm); padding: 12px;
+  box-shadow: var(--shadow-clay-in);
+}
+.blob-box:focus { outline: 2px solid var(--clay); outline-offset: 2px; }
+
+.error-text { color: var(--error); font-size: 13px; min-height: 18px; margin: 4px 0 0; }
+.hidden { display: none !important; }
+
+/* ---------- Library toolbar ---------- */
+
+.library-toolbar {
+  display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 12px;
+}
+.search-wrap { flex: 1 1 160px; }
+.search-input, .select-input {
+  width: 100%; background: var(--panel); color: var(--text-hi);
+  border: none; border-radius: var(--radius-sm); padding: 10px 12px;
+  box-shadow: var(--shadow-clay-in); font-size: 14px;
+}
+.select-input { width: auto; }
+
+.view-toggle { display: flex; gap: 4px; background: var(--panel); border-radius: var(--radius-sm); padding: 4px; box-shadow: var(--shadow-clay-in); }
+.view-btn { background: transparent; border: none; color: var(--text-lo); width: 34px; height: 34px; border-radius: 9px; cursor: pointer; font-size: 15px; }
+.view-btn.active { background: var(--raised-2); color: var(--text-hi); }
+
+.pick-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+
+/* ---------- Library grid/list ---------- */
+
+.library-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); padding-bottom: 90px; }
+.library-grid[data-view="list"] { grid-template-columns: 1fr; }
+
+.grid-item {
+  background: var(--panel); border-radius: var(--radius-md); box-shadow: var(--shadow-clay-out);
+  padding: 12px; display: flex; flex-direction: column; gap: 8px; position: relative;
+}
+.library-grid[data-view="list"] .grid-item { flex-direction: row; align-items: center; }
+
+.grid-thumb {
+  width: 100%; aspect-ratio: 1; border-radius: var(--radius-sm); background: var(--raised);
+  display: flex; align-items: center; justify-content: center; font-size: 30px;
+  box-shadow: var(--shadow-clay-in); overflow: hidden;
+}
+.grid-thumb img { width: 100%; height: 100%; object-fit: cover; }
+.library-grid[data-view="list"] .grid-thumb { width: 44px; height: 44px; flex: 0 0 auto; font-size: 18px; }
+
+.grid-name { font-size: 12.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grid-meta { font-size: 11px; color: var(--text-lo); }
+.library-grid[data-view="list"] .grid-name,
+.library-grid[data-view="list"] .grid-meta { flex: 1; }
+.grid-send-btn { width: 100%; }
+.library-grid[data-view="list"] .grid-send-btn { width: auto; }
+
+.empty-state { text-align: center; margin-top: 60px; color: var(--text-lo); }
+.empty-state p { margin: 4px 0; }
+
+/* ---------- Incoming offer toast ---------- */
+
+.toast {
+  position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+  width: calc(100% - 32px); max-width: 680px;
+  background: var(--panel); border-radius: var(--radius-md); box-shadow: var(--shadow-clay-out);
+  padding: 14px 16px; display: flex; align-items: center; gap: 12px; z-index: 50;
+  border: 1px solid rgba(94,209,196,0.25);
+}
+.toast-icon { font-size: 24px; }
+.toast-body { flex: 1; min-width: 0; }
+.toast-title { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast-sub { font-size: 12px; color: var(--text-lo); }
+
+/* ---------- Transfer tray ---------- */
+
+.transfer-tray {
+  position: fixed; right: 12px; bottom: 12px; width: min(340px, calc(100% - 24px));
+  display: flex; flex-direction: column; gap: 8px; z-index: 40;
+}
+.transfer-row {
+  background: var(--panel); border-radius: var(--radius-sm); box-shadow: var(--shadow-clay-out);
+  padding: 10px 12px; display: flex; align-items: center; gap: 10px;
+}
+.transfer-icon { font-size: 18px; }
+.transfer-info { flex: 1; min-width: 0; }
+.transfer-name { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.transfer-bar-track { height: 5px; border-radius: 3px; background: var(--raised); margin: 6px 0 4px; overflow: hidden; }
+.transfer-bar-fill { height: 100%; background: linear-gradient(90deg, var(--clay), var(--teal)); width: 0%; transition: width 0.15s ease; }
+.transfer-stats { font-size: 10.5px; color: var(--text-lo); }
+.transfer-cancel { background: transparent; border: none; color: var(--text-faint); cursor: pointer; font-size: 14px; padding: 4px; }
+
+/* ---------- Focus visibility ---------- */
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--teal); outline-offset: 2px;
+}
+
+/* ---------- Small screens ---------- */
+@media (max-width: 380px) {
+  .code-display { font-size: 32px; }
+  .hero-card h1 { font-size: 25px; }
+}
+
+</style>
+</head>
+<body>
+
+
+<div class="app-shell">
+
+  <!-- ============ TOP BAR ============ -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <span class="brand-name">LocalShare</span>
+    </div>
+    <div class="conn-pill" id="connPill" data-state="idle">
+      <span class="conn-dot"></span>
+      <span class="conn-label" id="connLabel">Not connected</span>
+    </div>
+  </header>
+
+  <!-- ============ SCREEN: ROLE PICK ============ -->
+  <section class="screen" id="screen-start" data-active="true">
+    <div class="hero-card clay">
+      <h1>Share files, straight across.</h1>
+      <p class="hero-sub">No cloud. No account. No upload. Two devices meet directly over Wi-Fi or a hotspot.</p>
+
+      <ol class="how-it-works">
+        <li><span class="step-num">1</span> One device taps <strong>Create a pairing</strong>, the other taps <strong>Join a pairing</strong>.</li>
+        <li><span class="step-num">2</span> A short text code appears on the creating device. Send it to the other device any way you like — copy/paste into a chat, AirDrop, Bluetooth. It's just a connection handshake, not your files.</li>
+        <li><span class="step-num">3</span> The joining device pastes it in and sends back a short reply code the same way. Once the creator pastes that reply in, the two devices connect directly — no server involved.</li>
+      </ol>
+
+      <div class="role-row">
+        <button class="btn btn-primary big" id="btnCreateRoom">
+          <span class="btn-glyph">＋</span>
+          Create a pairing
+        </button>
+        <button class="btn btn-ghost big" id="btnJoinRoom">
+          <span class="btn-glyph">⇲</span>
+          Join a pairing
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN: HOST PAIRING ============ -->
+  <section class="screen" id="screen-host" data-active="false">
+    <div class="pair-card clay">
+      <h2>Step 1 — send this to the other device</h2>
+      <p class="muted">Copy the code below and send it any way you like (AirDrop, Bluetooth, a chat message). It's just a handshake, not your files.</p>
+
+      <div class="code-display" id="hostCode">------</div>
+      <p class="code-caption">Verification code — should match on both screens</p>
+
+      <div class="blob-row">
+        <textarea id="hostOfferBlob" class="blob-box" readonly rows="4"></textarea>
+        <button class="btn btn-primary" id="btnCopyOffer">Copy pairing code</button>
+      </div>
+
+      <h2 class="step2">Step 2 — paste the reply from the other device</h2>
+      <div class="blob-row">
+        <textarea id="hostAnswerInput" class="blob-box" rows="4" placeholder="Paste the answer code here…"></textarea>
+        <button class="btn btn-primary" id="btnCompletePairing">Connect</button>
+      </div>
+      <p class="error-text" id="hostPairError"></p>
+
+      <button class="btn btn-text" id="btnHostBack">← Back</button>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN: JOINER PAIRING ============ -->
+  <section class="screen" id="screen-join" data-active="false">
+    <div class="pair-card clay">
+      <h2>Step 1 — paste the code from the host</h2>
+      <div class="blob-row">
+        <textarea id="joinOfferInput" class="blob-box" rows="4" placeholder="Paste the pairing code here…"></textarea>
+        <button class="btn btn-primary" id="btnReadOffer">Continue</button>
+      </div>
+      <p class="error-text" id="joinReadError"></p>
+
+      <div id="joinConfirmBlock" class="hidden">
+        <div class="code-display" id="joinCode">------</div>
+        <p class="code-caption">Confirm this matches the host's screen, then accept</p>
+        <button class="btn btn-primary big" id="btnAcceptJoin">Codes match — connect</button>
+
+        <h2 class="step2">Step 2 — send this reply back to the host</h2>
+        <div class="blob-row">
+          <textarea id="joinAnswerBlob" class="blob-box" readonly rows="4"></textarea>
+          <button class="btn btn-primary" id="btnCopyAnswer">Copy reply code</button>
+        </div>
+        <p class="muted small">Once the host pastes this in, you'll connect automatically.</p>
+      </div>
+
+      <button class="btn btn-text" id="btnJoinBack">← Back</button>
+    </div>
+  </section>
+
+  <!-- ============ SCREEN: CONNECTED / LIBRARY ============ -->
+  <section class="screen" id="screen-library" data-active="false">
+    <div class="library-toolbar">
+      <div class="search-wrap">
+        <input type="search" id="librarySearch" placeholder="Search files…" class="search-input">
+      </div>
+      <select id="libraryFilter" class="select-input">
+        <option value="">All types</option>
+        <option value="image">Images</option>
+        <option value="video">Video</option>
+        <option value="audio">Audio</option>
+        <option value="file">Other</option>
+      </select>
+      <select id="librarySort" class="select-input">
+        <option value="name">Name</option>
+        <option value="size">Size</option>
+        <option value="type">Type</option>
+      </select>
+      <div class="view-toggle" id="viewToggle">
+        <button class="view-btn active" data-view="grid" title="Grid view">▦</button>
+        <button class="view-btn" data-view="list" title="List view">☰</button>
+      </div>
+    </div>
+
+    <div class="pick-row">
+      <button class="btn btn-ghost" id="btnPickFiles">Add files</button>
+      <button class="btn btn-ghost" id="btnPickFolder">Add folder</button>
+      <span class="muted small" id="libraryCount">0 items</span>
+    </div>
+
+    <div class="library-grid" id="libraryGrid" data-view="grid"></div>
+    <div class="empty-state hidden" id="libraryEmpty">
+      <p>Nothing shared yet.</p>
+      <p class="muted small">Add files or a folder above — the other device will see them appear here in real time.</p>
+    </div>
+  </section>
+
+  <!-- ============ INCOMING OFFER TOAST ============ -->
+  <div class="toast hidden" id="incomingToast">
+    <div class="toast-icon" id="incomingIcon">📦</div>
+    <div class="toast-body">
+      <div class="toast-title" id="incomingName"></div>
+      <div class="toast-sub" id="incomingSize"></div>
+    </div>
+    <button class="btn btn-primary sm" id="btnAcceptIncoming">Accept</button>
+    <button class="btn btn-ghost sm" id="btnDeclineIncoming">Decline</button>
+  </div>
+
+  <!-- ============ TRANSFER TRAY ============ -->
+  <div class="transfer-tray" id="transferTray"></div>
+
+</div>
+
+<template id="tpl-grid-item">
+  <div class="grid-item">
+    <div class="grid-thumb"></div>
+    <div class="grid-name"></div>
+    <div class="grid-meta"></div>
+    <button class="grid-send-btn btn btn-primary sm">Send</button>
+  </div>
+</template>
+
+<template id="tpl-transfer-row">
+  <div class="transfer-row">
+    <div class="transfer-icon"></div>
+    <div class="transfer-info">
+      <div class="transfer-name"></div>
+      <div class="transfer-bar-track"><div class="transfer-bar-fill"></div></div>
+      <div class="transfer-stats"></div>
+    </div>
+    <button class="transfer-cancel" title="Cancel">✕</button>
+  </div>
+</template>
+
+<script>
+
+
+/* ===== utils.js ===== */
+/**
+ * utils.js
+ * Small, dependency-free helpers shared across every module.
+ * No imports, no external calls — safe to load first and use everywhere.
+ */
+
+/** Format a byte count as a human string, e.g. 1536 -> "1.5 KB". */
+function formatBytes(bytes, decimals = 1) {
+  if (!bytes || bytes <= 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)));
+  const value = bytes / Math.pow(1024, i);
+  return `${value.toFixed(i === 0 ? 0 : decimals)} ${units[i]}`;
+}
+
+/** Format bytes/sec as a human transfer speed string. */
+function formatSpeed(bytesPerSec) {
+  return `${formatBytes(bytesPerSec)}/s`;
+}
+
+/** Format seconds as H:MM:SS or M:SS. */
+function formatDuration(totalSeconds) {
+  if (!isFinite(totalSeconds) || totalSeconds < 0) return '--:--';
+  const s = Math.floor(totalSeconds % 60);
+  const m = Math.floor((totalSeconds / 60) % 60);
+  const h = Math.floor(totalSeconds / 3600);
+  const pad = (n) => String(n).padStart(2, '0');
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`;
+}
+
+/** Generate a short random id, good enough for session-scoped identifiers. */
+function shortId(len = 8) {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let out = '';
+  const bytes = crypto.getRandomValues(new Uint8Array(len));
+  for (let i = 0; i < len; i++) out += chars[bytes[i] % chars.length];
+  return out;
+}
+
+/**
+ * Deterministic 6-digit code derived from an arbitrary string.
+ * Used so both sides of a pairing can visually confirm they are
+ * looking at the exact same offer/answer blob before connecting.
+ * This is NOT cryptographic auth — it's a cheap tamper/typo check.
+ */
+async function sixDigitCode(str) {
+  const data = new TextEncoder().encode(str);
+  const digest = await crypto.subtle.digest('SHA-256', data);
+  const view = new DataView(digest);
+  const n = view.getUint32(0) % 1000000;
+  return String(n).padStart(6, '0');
+}
+
+/** Base64url-encode a UTF-8 string (safe for copy/paste, no + / = noise). */
+function encodeBlob(obj) {
+  const json = JSON.stringify(obj);
+  const b64 = btoa(unescape(encodeURIComponent(json)));
+  return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/** Reverse of encodeBlob. Throws if the blob is malformed. */
+function decodeBlob(str) {
+  const cleaned = str.trim().replace(/-/g, '+').replace(/_/g, '/');
+  const padded = cleaned + '='.repeat((4 - (cleaned.length % 4)) % 4);
+  const json = decodeURIComponent(escape(atob(padded)));
+  return JSON.parse(json);
+}
+
+/** Guess a broad file category from MIME type / extension, for icons & routing. */
+function fileCategory(name, mime) {
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  if (mime?.startsWith('image/') || ['jpg','jpeg','png','gif','webp','bmp','heic','avif'].includes(ext)) return 'image';
+  if (mime?.startsWith('video/') || ['mp4','mkv','mov','webm','avi','m4v'].includes(ext)) return 'video';
+  if (mime?.startsWith('audio/') || ['mp3','flac','wav','m4a','ogg','aac'].includes(ext)) return 'audio';
+  if (['srt','vtt'].includes(ext)) return 'subtitle';
+  if (['pdf'].includes(ext)) return 'pdf';
+  if (['zip','rar','7z','tar','gz'].includes(ext)) return 'archive';
+  return 'file';
+}
+
+/** Material-style icon glyph (text) per category, so we need zero icon assets. */
+const CATEGORY_ICON = {
+  image: '🖼', video: '🎬', audio: '🎵', subtitle: '💬',
+  pdf: '📄', archive: '🗜', file: '📦', folder: '📁'
+};
+
+/** Clamp a number between min and max. */
+function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
+
+/** Debounce a function by `wait` ms. */
+function debounce(fn, wait) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), wait);
+  };
+}
+
+/** Simple pub/sub event bus used to decouple modules from each other. */
+class EventBus {
+  constructor() { this._listeners = new Map(); }
+  on(event, cb) {
+    if (!this._listeners.has(event)) this._listeners.set(event, new Set());
+    this._listeners.get(event).add(cb);
+    return () => this._listeners.get(event)?.delete(cb);
+  }
+  emit(event, payload) {
+    this._listeners.get(event)?.forEach((cb) => {
+      try { cb(payload); } catch (err) { console.error(`[EventBus] listener for "${event}" threw`, err); }
+    });
+  }
+}
+
+// Single shared bus for the whole app (host, joiner, UI all talk through this).
+const bus = new EventBus();
+
+
+/* ===== db.js ===== */
+/**
+ * db.js
+ * Thin IndexedDB wrapper. No external libraries.
+ *
+ * Object stores:
+ *  - settings        key/value app settings (theme, trusted-device toggle, etc.)
+ *  - trustedDevices   fingerprint -> { label, addedAt }
+ *  - resumeState      transferId -> partial-transfer bookkeeping (phase 2+)
+ *  - playbackState    fileFingerprint -> { position, duration, updatedAt } (phase 2+)
+ */
+
+const DB_NAME = 'localshare-db';
+const DB_VERSION = 1;
+
+const STORES = ['settings', 'trustedDevices', 'resumeState', 'playbackState'];
+
+let _dbPromise = null;
+
+function openDb() {
+  if (_dbPromise) return _dbPromise;
+  _dbPromise = new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      for (const name of STORES) {
+        if (!db.objectStoreNames.contains(name)) {
+          db.createObjectStore(name);
+        }
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  return _dbPromise;
+}
+
+async function dbGet(store, key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readonly');
+    const req = tx.objectStore(store).get(key);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbSet(store, key, value) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).put(value, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbDelete(store, key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    tx.objectStore(store).delete(key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbGetAll(store) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readonly');
+    const objStore = tx.objectStore(store);
+    const keysReq = objStore.getAllKeys();
+    const valsReq = objStore.getAll();
+    tx.oncomplete = () => {
+      const keys = keysReq.result;
+      const vals = valsReq.result;
+      resolve(keys.map((k, i) => ({ key: k, value: vals[i] })));
+    };
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/** Convenience: get a setting with a fallback default. */
+async function getSetting(key, fallback = null) {
+  const val = await dbGet('settings', key);
+  return val === null ? fallback : val;
+}
+
+async function setSetting(key, value) {
+  return dbSet('settings', key, value);
+}
+
+
+/* ===== webrtc.js ===== */
+/**
+ * webrtc.js
+ * Owns the RTCPeerConnection + RTCDataChannel and the chunked binary
+ * transfer protocol that rides on top of it. Nothing in this file knows
+ * about pairing-code UI or the file browser — it only deals with bytes.
+ *
+ * Wire protocol on the data channel:
+ *   - Control messages are JSON strings (RTCDataChannel supports mixed
+ *     string/binary on one channel).
+ *   - File payload is raw ArrayBuffer chunks, each prefixed with an 8-byte
+ *     header: [4 bytes transferId (uint32)][4 bytes chunkIndex (uint32)].
+ *
+ * Control message types:
+ *   file-offer   { transferId, name, size, mime, category }
+ *   file-accept  { transferId, resumeFromByte }   // 0 unless resuming
+ *   file-decline { transferId, reason }
+ *   file-done    { transferId }                    // sender finished writing
+ *   file-cancel  { transferId }
+ *   file-error   { transferId, message }
+ *   ping / pong  keepalive
+ */
+
+const CHUNK_SIZE = 64 * 1024;          // 64KB per chunk — safe under typical SCTP message limits
+const HEADER_BYTES = 8;
+const BUFFERED_AMOUNT_HIGH_WATER = 8 * 1024 * 1024;  // pause sending above 8MB queued
+const BUFFERED_AMOUNT_LOW_WATER = 2 * 1024 * 1024;   // resume sending below 2MB queued
+
+// STUN is only used for candidate gathering format/ICE machinery — with both
+// devices on the same LAN/hotspot, host candidates alone are normally enough
+// and no external server is actually contacted. No TURN is configured, so
+// this deliberately cannot fall back to relaying through the internet.
+const RTC_CONFIG = { iceServers: [] };
+
+class LocalShareConnection {
+  constructor() {
+    this.pc = null;
+    this.channel = null;
+    this.role = null; // 'host' | 'joiner'
+    this.state = 'idle'; // idle | gathering | awaiting-remote | connecting | connected | closed | failed
+
+    // Outgoing transfers keyed by transferId
+    this._outgoing = new Map();
+    // Incoming transfers keyed by transferId
+    this._incoming = new Map();
+    this._nextTransferId = 1;
+  }
+
+  _setState(s) {
+    this.state = s;
+    bus.emit('rtc:state', s);
+  }
+
+  /** Create the RTCPeerConnection and, for the host, the data channel. */
+  _createPeer(role) {
+    this.role = role;
+    this.pc = new RTCPeerConnection(RTC_CONFIG);
+
+    this.pc.oniceconnectionstatechange = () => {
+      const ics = this.pc.iceConnectionState;
+      if (ics === 'connected' || ics === 'completed') this._setState('connected');
+      else if (ics === 'failed') this._setState('failed');
+      else if (ics === 'disconnected') bus.emit('rtc:disconnected');
+      else if (ics === 'closed') this._setState('closed');
+    };
+
+    if (role === 'host') {
+      this.channel = this.pc.createDataChannel('localshare', { ordered: true });
+      this._wireChannel(this.channel);
+    } else {
+      this.pc.ondatachannel = (ev) => {
+        this.channel = ev.channel;
+        this._wireChannel(this.channel);
+      };
+    }
+  }
+
+  _wireChannel(channel) {
+    channel.binaryType = 'arraybuffer';
+    channel.bufferedAmountLowThreshold = BUFFERED_AMOUNT_LOW_WATER;
+    channel.onopen = () => { this._setState('connected'); bus.emit('rtc:open'); };
+    channel.onclose = () => { this._setState('closed'); bus.emit('rtc:close'); };
+    channel.onerror = (e) => bus.emit('rtc:error', e);
+    channel.onmessage = (ev) => this._onMessage(ev.data);
+    channel.onbufferedamountlow = () => this._pumpAllOutgoing();
+  }
+
+  /** Wait until ICE gathering finishes so we produce one complete SDP blob (no trickle needed for manual copy/paste). */
+  _waitForIceGatheringComplete() {
+    if (this.pc.iceGatheringState === 'complete') return Promise.resolve();
+    return new Promise((resolve) => {
+      const check = () => {
+        if (this.pc.iceGatheringState === 'complete') {
+          this.pc.removeEventListener('icegatheringstatechange', check);
+          resolve();
+        }
+      };
+      this.pc.addEventListener('icegatheringstatechange', check);
+      // Safety timeout: some browsers/networks never reach "complete" cleanly.
+      setTimeout(resolve, 4000);
+    });
+  }
+
+  /** HOST: create an offer blob to hand to the joiner out-of-band. */
+  async createOfferBlob() {
+    this._createPeer('host');
+    this._setState('gathering');
+    const offer = await this.pc.createOffer();
+    await this.pc.setLocalDescription(offer);
+    await this._waitForIceGatheringComplete();
+    this._setState('awaiting-remote');
+    return this.pc.localDescription.toJSON ? this.pc.localDescription.toJSON() : { type: this.pc.localDescription.type, sdp: this.pc.localDescription.sdp };
+  }
+
+  /** HOST: consume the joiner's answer blob to complete the handshake. */
+  async acceptAnswerBlob(answerDesc) {
+    this._setState('connecting');
+    await this.pc.setRemoteDescription(answerDesc);
+  }
+
+  /** JOINER: consume the host's offer blob, produce an answer blob. */
+  async createAnswerBlob(offerDesc) {
+    this._createPeer('joiner');
+    await this.pc.setRemoteDescription(offerDesc);
+    this._setState('gathering');
+    const answer = await this.pc.createAnswer();
+    await this.pc.setLocalDescription(answer);
+    await this._waitForIceGatheringComplete();
+    this._setState('connecting');
+    return this.pc.localDescription.toJSON ? this.pc.localDescription.toJSON() : { type: this.pc.localDescription.type, sdp: this.pc.localDescription.sdp };
+  }
+
+  close() {
+    try { this.channel?.close(); } catch {}
+    try { this.pc?.close(); } catch {}
+    this._setState('closed');
+  }
+
+  // ---------- Messaging ----------
+
+  _send(obj) {
+    if (this.channel?.readyState === 'open') this.channel.send(JSON.stringify(obj));
+  }
+
+  _onMessage(data) {
+    if (typeof data === 'string') {
+      let msg;
+      try { msg = JSON.parse(data); } catch { return; }
+      this._handleControl(msg);
+    } else {
+      this._handleChunk(data);
+    }
+  }
+
+  _handleControl(msg) {
+    switch (msg.type) {
+      case 'file-offer': bus.emit('transfer:incoming-offer', msg); break;
+      case 'file-accept': this._beginSending(msg.transferId, msg.resumeFromByte || 0); break;
+      case 'file-decline': bus.emit('transfer:declined', msg); this._outgoing.delete(msg.transferId); break;
+      case 'file-cancel': this._cancelIncoming(msg.transferId); bus.emit('transfer:cancelled', msg); break;
+      case 'file-done': bus.emit('transfer:sender-done', msg); break;
+      case 'file-error': bus.emit('transfer:error', msg); break;
+      case 'ping': this._send({ type: 'pong' }); break;
+      default: bus.emit('rtc:message', msg);
+    }
+  }
+
+  // ---------- Sending files ----------
+
+  /** Register a File/Blob to offer to the peer. Returns the transferId. */
+  offerFile(fileHandleOrBlob, name, size, mime) {
+    const transferId = this._nextTransferId++;
+    const category = fileCategory(name, mime);
+    this._outgoing.set(transferId, {
+      source: fileHandleOrBlob, name, size, mime, offset: 0, paused: false, cancelled: false,
+    });
+    this._send({ type: 'file-offer', transferId, name, size, mime, category });
+    return transferId;
+  }
+
+  cancelOutgoing(transferId) {
+    const t = this._outgoing.get(transferId);
+    if (t) t.cancelled = true;
+    this._send({ type: 'file-cancel', transferId });
+    this._outgoing.delete(transferId);
+  }
+
+  async _beginSending(transferId, resumeFromByte) {
+    const t = this._outgoing.get(transferId);
+    if (!t) return;
+    t.offset = resumeFromByte;
+    bus.emit('transfer:sending-start', { transferId, size: t.size, resumeFromByte });
+    await this._pumpOutgoing(transferId);
+  }
+
+  _pumpAllOutgoing() {
+    for (const id of this._outgoing.keys()) this._pumpOutgoing(id);
+  }
+
+  /** Read+send chunks until buffer is full or file is exhausted; resumes via onbufferedamountlow. */
+  async _pumpOutgoing(transferId) {
+    const t = this._outgoing.get(transferId);
+    if (!t || t.cancelled || t.paused) return;
+    if (!this.channel || this.channel.readyState !== 'open') return;
+
+    const blob = t.source instanceof Blob ? t.source : null;
+    if (!blob) return; // filesystem.js hands us a Blob-like slice interface
+
+    while (t.offset < t.size) {
+      if (this.channel.bufferedAmount > BUFFERED_AMOUNT_HIGH_WATER) {
+        t.paused = true;
+        return; // onbufferedamountlow will resume the pump
+      }
+      const end = Math.min(t.offset + CHUNK_SIZE, t.size);
+      const slice = blob.slice(t.offset, end);
+      const buf = await slice.arrayBuffer();
+      const framed = new ArrayBuffer(HEADER_BYTES + buf.byteLength);
+      const view = new DataView(framed);
+      view.setUint32(0, transferId);
+      view.setUint32(4, t.offset); // chunk start offset, doubles as resume marker
+      new Uint8Array(framed, HEADER_BYTES).set(new Uint8Array(buf));
+
+      try {
+        this.channel.send(framed);
+      } catch (err) {
+        bus.emit('transfer:error', { transferId, message: String(err) });
+        return;
+      }
+
+      t.offset = end;
+      bus.emit('transfer:progress', { transferId, sent: t.offset, size: t.size, direction: 'out' });
+    }
+
+    // Done sending all bytes.
+    this._send({ type: 'file-done', transferId });
+    this._outgoing.delete(transferId);
+    bus.emit('transfer:complete', { transferId, direction: 'out' });
+    t.paused = false;
+  }
+
+  // ---------- Receiving files ----------
+
+  /** UI calls this after the user accepts an incoming offer. sink must implement write(chunk)/close()/abort(). */
+  acceptIncoming(transferId, meta, sink, resumeFromByte = 0) {
+    this._incoming.set(transferId, { meta, sink, received: resumeFromByte, size: meta.size });
+    this._send({ type: 'file-accept', transferId, resumeFromByte });
+  }
+
+  declineIncoming(transferId, reason = 'declined') {
+    this._send({ type: 'file-decline', transferId, reason });
+  }
+
+  _cancelIncoming(transferId) {
+    const t = this._incoming.get(transferId);
+    if (t) { try { t.sink.abort?.(); } catch {} }
+    this._incoming.delete(transferId);
+  }
+
+  async _handleChunk(arrayBuffer) {
+    const view = new DataView(arrayBuffer);
+    const transferId = view.getUint32(0);
+    const chunkOffset = view.getUint32(4);
+    const payload = arrayBuffer.slice(HEADER_BYTES);
+
+    const t = this._incoming.get(transferId);
+    if (!t) return; // unknown/cancelled transfer, drop silently
+
+    try {
+      await t.sink.write(new Uint8Array(payload));
+    } catch (err) {
+      bus.emit('transfer:error', { transferId, message: String(err) });
+      this._incoming.delete(transferId);
+      return;
+    }
+
+    t.received = chunkOffset + payload.byteLength;
+    bus.emit('transfer:progress', { transferId, received: t.received, size: t.size, direction: 'in' });
+
+    if (t.received >= t.size) {
+      try { await t.sink.close(); } catch {}
+      this._incoming.delete(transferId);
+      bus.emit('transfer:complete', { transferId, direction: 'in' });
+    }
+  }
+}
+
+
+/* ===== signaling.js ===== */
+/**
+ * signaling.js
+ * Orchestrates the manual, zero-server pairing flow on top of webrtc.js.
+ *
+ * There is no server anywhere in this file. The "signaling" is a human
+ * carrying a short text blob from one device to the other (clipboard,
+ * AirDrop, chat app, whatever) — WebRTC itself only ever talks directly
+ * between the two devices once connected.
+ *
+ * Flow:
+ *   Host:    startHosting() -> offerBlob (+ code) -> show to user
+ *            completePairing(answerBlobText) -> connected
+ *   Joiner:  readOfferBlob(offerBlobText) -> code shown for verification
+ *            joinWithOffer() -> answerBlob -> show to user, send back to host
+ */
+
+const PairingSession = {
+  conn: null,
+  role: null,        // 'host' | 'joiner'
+  offerBlobText: null,
+  answerBlobText: null,
+  code: null,
+
+  reset() {
+    this.conn?.close();
+    this.conn = new LocalShareConnection();
+    this.role = null;
+    this.offerBlobText = null;
+    this.answerBlobText = null;
+    this.code = null;
+  },
+
+  // ---------- Host side ----------
+
+  async startHosting() {
+    this.reset();
+    this.role = 'host';
+    const offerDesc = await this.conn.createOfferBlob();
+    const blob = { v: 1, kind: 'offer', desc: offerDesc, ts: Date.now() };
+    this.offerBlobText = encodeBlob(blob);
+    this.code = await sixDigitCode(this.offerBlobText);
+    bus.emit('pairing:offer-ready', { blobText: this.offerBlobText, code: this.code });
+    return { blobText: this.offerBlobText, code: this.code };
+  },
+
+  /** Host pastes in the joiner's answer blob to finish the handshake. */
+  async completePairing(answerBlobText) {
+    let parsed;
+    try { parsed = decodeBlob(answerBlobText); }
+    catch { throw new Error('That doesn\u2019t look like a valid answer code. Check it was copied in full.'); }
+    if (parsed.kind !== 'answer') throw new Error('This is not an answer code — did you paste the offer by mistake?');
+    await this.conn.acceptAnswerBlob(parsed.desc);
+    // Connection completes asynchronously; app.js listens for rtc:open.
+  },
+
+  // ---------- Joiner side ----------
+
+  /** Parse the offer blob the joiner received and compute the code to verify against the host's screen. */
+  async readOfferBlob(offerBlobText) {
+    let parsed;
+    try { parsed = decodeBlob(offerBlobText); }
+    catch { throw new Error('That doesn\u2019t look like a valid pairing code. Check it was copied in full.'); }
+    if (parsed.kind !== 'offer') throw new Error('This is not a pairing (offer) code.');
+    const code = await sixDigitCode(offerBlobText.trim());
+    this._pendingOffer = parsed;
+    this.code = code;
+    return code;
+  },
+
+  /** After the user visually confirms the code matches, actually join. */
+  async joinWithOffer() {
+    if (!this._pendingOffer) throw new Error('No pairing code loaded yet.');
+    this.reset0(); // keep code/offer, only reset connection object
+    this.role = 'joiner';
+    const answerDesc = await this.conn.createAnswerBlob(this._pendingOffer.desc);
+    const blob = { v: 1, kind: 'answer', desc: answerDesc, ts: Date.now() };
+    this.answerBlobText = encodeBlob(blob);
+    bus.emit('pairing:answer-ready', { blobText: this.answerBlobText });
+    return this.answerBlobText;
+  },
+
+  // reset the RTCPeerConnection only, without wiping the pending offer/code
+  reset0() {
+    this.conn?.close();
+    this.conn = new LocalShareConnection();
+  },
+};
+
+
+/* ===== filesystem.js ===== */
+/**
+ * filesystem.js
+ * Lets the HOST pick files/folders to share. Prefers the File System
+ * Access API (Chrome/Edge desktop & Android). Falls back to classic
+ * <input type="file"> (webkitdirectory for folders) everywhere else,
+ * notably iPad Safari, which has no File System Access API.
+ *
+ * Produces a flat list of entries: { id, name, path, size, mime, category, blob }
+ * "blob" is a lazily-resolved File object — nothing is read into memory here.
+ */
+
+const FileLibrary = {
+  entries: new Map(), // id -> entry
+
+  supportsFSAccess() {
+    return 'showOpenFilePicker' in window;
+  },
+
+  clear() {
+    this.entries.clear();
+    bus.emit('library:changed');
+  },
+
+  _addFile(file, path) {
+    const id = shortId(10);
+    const category = fileCategory(file.name, file.type);
+    const entry = {
+      id, name: file.name, path: path || file.name,
+      size: file.size, mime: file.type || '', category, blob: file,
+    };
+    this.entries.set(id, entry);
+    return entry;
+  },
+
+  /** Pick individual files. */
+  async pickFiles() {
+    if (this.supportsFSAccess()) {
+      let handles;
+      try {
+        handles = await window.showOpenFilePicker({ multiple: true });
+      } catch (err) {
+        if (err.name === 'AbortError') return [];
+        throw err;
+      }
+      const added = [];
+      for (const h of handles) {
+        const file = await h.getFile();
+        added.push(this._addFile(file, file.name));
+      }
+      bus.emit('library:changed');
+      return added;
+    }
+    return this._pickViaInput(false);
+  },
+
+  /** Pick a folder (recursively, where supported). */
+  async pickFolder() {
+    if (this.supportsFSAccess() && 'showDirectoryPicker' in window) {
+      let dirHandle;
+      try {
+        dirHandle = await window.showDirectoryPicker();
+      } catch (err) {
+        if (err.name === 'AbortError') return [];
+        throw err;
+      }
+      const added = [];
+      await this._walkDirectory(dirHandle, dirHandle.name, added);
+      bus.emit('library:changed');
+      return added;
+    }
+    return this._pickViaInput(true);
+  },
+
+  async _walkDirectory(dirHandle, pathPrefix, added) {
+    for await (const [name, handle] of dirHandle.entries()) {
+      const path = `${pathPrefix}/${name}`;
+      if (handle.kind === 'file') {
+        const file = await handle.getFile();
+        added.push(this._addFile(file, path));
+      } else if (handle.kind === 'directory') {
+        await this._walkDirectory(handle, path, added);
+      }
+    }
+  },
+
+  /** Fallback using a hidden <input type=file>, works on iPad Safari and older browsers. */
+  _pickViaInput(isDirectory) {
+    return new Promise((resolve) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.multiple = true;
+      if (isDirectory) {
+        input.webkitdirectory = true;
+        input.directory = true;
+      }
+      input.style.display = 'none';
+      document.body.appendChild(input);
+      input.addEventListener('change', () => {
+        const added = [];
+        for (const file of input.files) {
+          const path = file.webkitRelativePath || file.name;
+          added.push(this._addFile(file, path));
+        }
+        document.body.removeChild(input);
+        bus.emit('library:changed');
+        resolve(added);
+      }, { once: true });
+      input.addEventListener('cancel', () => {
+        document.body.removeChild(input);
+        resolve([]);
+      }, { once: true });
+      input.click();
+    });
+  },
+
+  list() {
+    return Array.from(this.entries.values());
+  },
+
+  get(id) {
+    return this.entries.get(id);
+  },
+
+  remove(id) {
+    this.entries.delete(id);
+    bus.emit('library:changed');
+  },
+
+  search(query, { sortBy = 'name', category = null } = {}) {
+    let items = this.list();
+    if (category) items = items.filter((e) => e.category === category);
+    if (query) {
+      const q = query.toLowerCase();
+      items = items.filter((e) => e.name.toLowerCase().includes(q));
+    }
+    items.sort((a, b) => {
+      if (sortBy === 'size') return b.size - a.size;
+      if (sortBy === 'type') return a.category.localeCompare(b.category);
+      return a.name.localeCompare(b.name);
+    });
+    return items;
+  },
+};
+
+/**
+ * Creates a "sink" object with write(chunk)/close()/abort() that webrtc.js
+ * streams incoming bytes into, without ever holding the whole file in RAM.
+ *
+ * Preferred path: File System Access API's showSaveFilePicker + a
+ * FileSystemWritableFileStream — bytes go straight to disk.
+ *
+ * Fallback path (iPad Safari, older browsers): accumulate Uint8Array chunks
+ * in an array (cheap — no copying/concatenation until the very end) and
+ * hand off a Blob + object URL for the browser's normal download flow once
+ * complete. This still avoids double-buffering during transfer; the only
+ * memory cost is proportional to the file itself, paid once at the end.
+ */
+async function createReceiveSink(meta) {
+  if ('showSaveFilePicker' in window) {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName: meta.name });
+      const writable = await handle.createWritable();
+      return {
+        kind: 'fsapi',
+        async write(chunk) { await writable.write(chunk); },
+        async close() { await writable.close(); },
+        async abort() { try { await writable.abort(); } catch {} },
+      };
+    } catch (err) {
+      if (err.name !== 'AbortError') console.warn('showSaveFilePicker failed, falling back to memory buffer', err);
+    }
+  }
+  const chunks = [];
+  return {
+    kind: 'memory',
+    async write(chunk) { chunks.push(chunk); },
+    async close() {
+      const blob = new Blob(chunks, { type: meta.mime || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = meta.name;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    },
+    async abort() { chunks.length = 0; },
+  };
+}
+
+
+/* ===== app.js ===== */
+/**
+ * app.js
+ * Wires the DOM to signaling.js / webrtc.js / filesystem.js.
+ * This is the only module allowed to touch document.* directly.
+ */
+
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- Screen navigation ----------
+
+  const screens = ['start', 'host', 'join', 'library'];
+  function showScreen(name) {
+    for (const s of screens) $(`screen-${s}`).dataset.active = String(s === name);
+  }
+
+  // ---------- Connection pill ----------
+
+  bus.on('rtc:state', (state) => {
+    const pill = $('connPill');
+    pill.dataset.state = state;
+    const labels = {
+      idle: 'Not connected', gathering: 'Preparing…', 'awaiting-remote': 'Waiting for reply…',
+      connecting: 'Connecting…', connected: 'Connected', closed: 'Disconnected', failed: 'Connection failed',
+    };
+    $('connLabel').textContent = labels[state] || state;
+  });
+
+  bus.on('rtc:open', () => {
+    showScreen('library');
+    renderLibrary();
+  });
+
+  bus.on('rtc:disconnected', () => {
+    $('connLabel').textContent = 'Reconnecting…';
+  });
+
+  // ---------- Start screen ----------
+
+  $('btnCreateRoom').addEventListener('click', async () => {
+    showScreen('host');
+    $('hostCode').textContent = '------';
+    $('hostOfferBlob').value = '';
+    $('hostAnswerInput').value = '';
+    $('hostPairError').textContent = '';
+    try {
+      const { blobText, code } = await PairingSession.startHosting();
+      $('hostCode').textContent = code;
+      $('hostOfferBlob').value = blobText;
+    } catch (err) {
+      $('hostPairError').textContent = 'Could not start pairing: ' + err.message;
+    }
+  });
+
+  $('btnJoinRoom').addEventListener('click', () => {
+    showScreen('join');
+    $('joinOfferInput').value = '';
+    $('joinAnswerBlob').value = '';
+    $('joinReadError').textContent = '';
+    $('joinConfirmBlock').classList.add('hidden');
+  });
+
+  // ---------- Host pairing screen ----------
+
+  $('btnCopyOffer').addEventListener('click', () => copyToClipboard($('hostOfferBlob').value, 'btnCopyOffer'));
+
+  $('btnCompletePairing').addEventListener('click', async () => {
+    $('hostPairError').textContent = '';
+    const text = $('hostAnswerInput').value.trim();
+    if (!text) { $('hostPairError').textContent = 'Paste the reply code first.'; return; }
+    try {
+      await PairingSession.completePairing(text);
+      $('btnCompletePairing').disabled = true;
+      $('btnCompletePairing').textContent = 'Connecting…';
+    } catch (err) {
+      $('hostPairError').textContent = err.message;
+    }
+  });
+
+  $('btnHostBack').addEventListener('click', () => { PairingSession.conn?.close(); showScreen('start'); });
+
+  // ---------- Joiner pairing screen ----------
+
+  $('btnReadOffer').addEventListener('click', async () => {
+    $('joinReadError').textContent = '';
+    const text = $('joinOfferInput').value.trim();
+    if (!text) { $('joinReadError').textContent = 'Paste the pairing code first.'; return; }
+    try {
+      const code = await PairingSession.readOfferBlob(text);
+      $('joinCode').textContent = code;
+      $('joinConfirmBlock').classList.remove('hidden');
+    } catch (err) {
+      $('joinReadError').textContent = err.message;
+    }
+  });
+
+  $('btnAcceptJoin').addEventListener('click', async () => {
+    $('btnAcceptJoin').disabled = true;
+    $('btnAcceptJoin').textContent = 'Connecting…';
+    try {
+      const answerBlob = await PairingSession.joinWithOffer();
+      $('joinAnswerBlob').value = answerBlob;
+    } catch (err) {
+      $('joinReadError').textContent = err.message;
+      $('btnAcceptJoin').disabled = false;
+      $('btnAcceptJoin').textContent = 'Codes match — connect';
+    }
+  });
+
+  $('btnCopyAnswer').addEventListener('click', () => copyToClipboard($('joinAnswerBlob').value, 'btnCopyAnswer'));
+  $('btnJoinBack').addEventListener('click', () => { PairingSession.conn?.close(); showScreen('start'); });
+
+  async function copyToClipboard(text, btnId) {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      const btn = $(btnId);
+      const original = btn.textContent;
+      btn.textContent = 'Copied ✓';
+      setTimeout(() => { btn.textContent = original; }, 1500);
+    } catch {
+      // Clipboard API can fail without a user gesture context in some browsers —
+      // the textarea is readonly+selectable as a manual fallback.
+    }
+  }
+
+  // ---------- Library screen ----------
+
+  const gridEl = $('libraryGrid');
+  const emptyEl = $('libraryEmpty');
+  const tpl = $('tpl-grid-item');
+  let currentView = 'grid';
+
+  function renderLibrary() {
+    const query = $('librarySearch').value;
+    const category = $('libraryFilter').value || null;
+    const sortBy = $('librarySort').value;
+    const items = FileLibrary.search(query, { sortBy, category });
+
+    gridEl.innerHTML = '';
+    $('libraryCount').textContent = `${items.length} item${items.length === 1 ? '' : 's'}`;
+    emptyEl.classList.toggle('hidden', items.length > 0);
+
+    for (const entry of items) {
+      const node = tpl.content.cloneNode(true);
+      const nameEl = node.querySelector('.grid-name');
+      const metaEl = node.querySelector('.grid-meta');
+      const thumbEl = node.querySelector('.grid-thumb');
+      const sendBtn = node.querySelector('.grid-send-btn');
+
+      nameEl.textContent = entry.name;
+      nameEl.title = entry.path;
+      metaEl.textContent = `${formatBytes(entry.size)} · ${entry.category}`;
+
+      if (entry.category === 'image') {
+        const img = document.createElement('img');
+        img.loading = 'lazy';
+        img.src = URL.createObjectURL(entry.blob);
+        thumbEl.appendChild(img);
+      } else {
+        thumbEl.textContent = CATEGORY_ICON[entry.category] || CATEGORY_ICON.file;
+      }
+
+      sendBtn.addEventListener('click', () => sendEntry(entry));
+      gridEl.appendChild(node);
+    }
+  }
+
+  $('librarySearch').addEventListener('input', debounce(renderLibrary, 150));
+  $('libraryFilter').addEventListener('change', renderLibrary);
+  $('librarySort').addEventListener('change', renderLibrary);
+  bus.on('library:changed', renderLibrary);
+
+  $('viewToggle').addEventListener('click', (e) => {
+    const btn = e.target.closest('.view-btn');
+    if (!btn) return;
+    currentView = btn.dataset.view;
+    gridEl.dataset.view = currentView;
+    document.querySelectorAll('.view-btn').forEach((b) => b.classList.toggle('active', b === btn));
+  });
+
+  $('btnPickFiles').addEventListener('click', async () => {
+    try { await FileLibrary.pickFiles(); } catch (err) { console.error(err); }
+  });
+  $('btnPickFolder').addEventListener('click', async () => {
+    try { await FileLibrary.pickFolder(); } catch (err) { console.error(err); }
+  });
+
+  // ---------- Sending a file to the peer ----------
+
+  function sendEntry(entry) {
+    const conn = PairingSession.conn;
+    if (!conn || conn.state !== 'connected') return;
+    const transferId = conn.offerFile(entry.blob, entry.name, entry.size, entry.mime);
+    addTransferRow(transferId, entry.name, entry.category, entry.size, 'out');
+  }
+
+  // ---------- Incoming offer handling ----------
+
+  let pendingIncoming = null;
+
+  bus.on('transfer:incoming-offer', (msg) => {
+    pendingIncoming = msg;
+    $('incomingIcon').textContent = CATEGORY_ICON[msg.category] || CATEGORY_ICON.file;
+    $('incomingName').textContent = msg.name;
+    $('incomingSize').textContent = formatBytes(msg.size);
+    $('incomingToast').classList.remove('hidden');
+  });
+
+  $('btnAcceptIncoming').addEventListener('click', async () => {
+    if (!pendingIncoming) return;
+    const msg = pendingIncoming;
+    pendingIncoming = null;
+    $('incomingToast').classList.add('hidden');
+    try {
+      const sink = await createReceiveSink(msg);
+      PairingSession.conn.acceptIncoming(msg.transferId, msg, sink);
+      addTransferRow(msg.transferId, msg.name, msg.category, msg.size, 'in');
+    } catch (err) {
+      PairingSession.conn.declineIncoming(msg.transferId, 'save-failed');
+    }
+  });
+
+  $('btnDeclineIncoming').addEventListener('click', () => {
+    if (!pendingIncoming) return;
+    PairingSession.conn.declineIncoming(pendingIncoming.transferId, 'user-declined');
+    pendingIncoming = null;
+    $('incomingToast').classList.add('hidden');
+  });
+
+  // ---------- Transfer tray ----------
+
+  const trayEl = $('transferTray');
+  const rowTpl = $('tpl-transfer-row');
+  const rows = new Map(); // transferId -> { el, size, startedAt }
+
+  function addTransferRow(transferId, name, category, size, direction) {
+    const node = rowTpl.content.cloneNode(true);
+    const rowEl = node.querySelector('.transfer-row');
+    rowEl.querySelector('.transfer-icon').textContent = CATEGORY_ICON[category] || CATEGORY_ICON.file;
+    rowEl.querySelector('.transfer-name').textContent = `${direction === 'out' ? '↑' : '↓'} ${name}`;
+    rowEl.querySelector('.transfer-stats').textContent = `0% · ${formatBytes(size)}`;
+    rowEl.querySelector('.transfer-cancel').addEventListener('click', () => {
+      if (direction === 'out') PairingSession.conn.cancelOutgoing(transferId);
+      rowEl.remove();
+      rows.delete(transferId);
+    });
+    trayEl.appendChild(rowEl);
+    rows.set(transferId, { el: rowEl, size, startedAt: performance.now(), lastBytes: 0, lastTs: performance.now() });
+  }
+
+  bus.on('transfer:progress', ({ transferId, sent, received, size, direction }) => {
+    const row = rows.get(transferId);
+    if (!row) return;
+    const done = direction === 'out' ? sent : received;
+    const pct = Math.round((done / size) * 100);
+    const now = performance.now();
+    const dt = (now - row.lastTs) / 1000;
+    const speed = dt > 0.15 ? (done - row.lastBytes) / dt : null;
+    if (speed !== null) { row.lastBytes = done; row.lastTs = now; row._lastSpeed = speed; }
+    const shownSpeed = row._lastSpeed || 0;
+    row.el.querySelector('.transfer-bar-fill').style.width = `${pct}%`;
+    row.el.querySelector('.transfer-stats').textContent =
+      `${pct}% · ${formatBytes(done)} / ${formatBytes(size)} · ${formatSpeed(shownSpeed)}`;
+  });
+
+  bus.on('transfer:complete', ({ transferId }) => {
+    const row = rows.get(transferId);
+    if (!row) return;
+    row.el.querySelector('.transfer-stats').textContent = 'Complete';
+    row.el.querySelector('.transfer-bar-fill').style.width = '100%';
+    setTimeout(() => { row.el.remove(); rows.delete(transferId); }, 4000);
+  });
+
+  bus.on('transfer:error', ({ transferId, message }) => {
+    const row = rows.get(transferId);
+    if (!row) return;
+    row.el.querySelector('.transfer-stats').textContent = `Error: ${message}`;
+  });
+
+  bus.on('transfer:declined', ({ transferId }) => {
+    const row = rows.get(transferId);
+    if (row) { row.el.querySelector('.transfer-stats').textContent = 'Declined by peer'; }
+  });
+
+  // ---------- Service worker registration ----------
+
+  // Service workers (needed for install + offline caching) don't work over
+  // file://, by browser design — everything else in the app (pairing,
+  // WebRTC transfer, file picking) works fine opened straight from a file
+  // manager, so we just skip this quietly instead of logging a scary error.
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch((err) => console.warn('SW registration failed', err));
+    });
+  }
+})();
+
+</script>
+</body>
+</html>
