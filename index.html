@@ -283,6 +283,37 @@ html, body {
 .empty-state { text-align: center; margin-top: 60px; color: var(--text-lo); }
 .empty-state p { margin: 4px 0; }
 
+/* ---------- Remote (peer-shared) library ---------- */
+
+.remote-heading {
+  display: flex; align-items: baseline; gap: 8px; margin: 22px 0 12px;
+  font-size: 14px; color: var(--text-hi);
+}
+.remote-item-actions { display: flex; gap: 6px; }
+.remote-item-actions .btn { flex: 1; padding: 8px 6px; font-size: 12px; }
+.library-grid[data-view="list"] .remote-item-actions { flex: 0 0 auto; }
+
+/* ---------- View modal ---------- */
+
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(6,7,10,0.7); z-index: 80;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.modal-card {
+  width: min(720px, 100%); max-height: 88vh; display: flex; flex-direction: column;
+  background: var(--panel); border-radius: var(--radius-lg); overflow: hidden;
+}
+.modal-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; gap: 10px; }
+.modal-title { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.modal-body {
+  flex: 1; min-height: 200px; max-height: 62vh; overflow: auto;
+  display: flex; align-items: center; justify-content: center; background: var(--bg);
+}
+.modal-body img, .modal-body video { max-width: 100%; max-height: 62vh; display: block; }
+.modal-body audio { width: 100%; margin: 24px; }
+.modal-body iframe { width: 100%; height: 62vh; border: none; }
+.modal-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 16px; }
+
 /* ---------- Incoming offer toast ---------- */
 
 .toast {
@@ -343,6 +374,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
       <span class="conn-dot"></span>
       <span class="conn-label" id="connLabel">Not connected</span>
     </div>
+    <button class="btn btn-ghost sm hidden" id="btnDisconnect" title="Disconnect and go back to the home screen">Disconnect</button>
   </header>
 
   <!-- ============ SCREEN: ROLE PICK ============ -->
@@ -484,7 +516,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
       <p>Nothing shared yet.</p>
       <p class="muted small">Add files or a folder above — the other device will see them appear here in real time.</p>
     </div>
+
+    <h3 class="remote-heading">Shared with you <span class="muted small" id="remoteLibraryCount">0 items</span></h3>
+    <div class="library-grid" id="remoteLibraryGrid" data-view="grid"></div>
+    <div class="empty-state hidden" id="remoteLibraryEmpty">
+      <p>Nothing from the other device yet.</p>
+      <p class="muted small">Whatever they add appears here instantly — tap View to open it or Download to save it.</p>
+    </div>
   </section>
+
+  <!-- ============ VIEW MODAL ============ -->
+  <div class="modal-overlay hidden" id="viewModal">
+    <div class="modal-card clay">
+      <div class="modal-head">
+        <div class="modal-title" id="viewModalTitle"></div>
+        <button class="btn btn-text sm" id="btnViewModalClose">✕ Close</button>
+      </div>
+      <div class="modal-body" id="viewModalBody"></div>
+      <div class="modal-foot">
+        <span class="muted small" id="viewModalStatus"></span>
+        <button class="btn btn-primary sm" id="btnViewModalDownload">Download</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ============ INCOMING OFFER TOAST ============ -->
   <div class="toast hidden" id="incomingToast">
@@ -508,6 +562,18 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
     <div class="grid-name"></div>
     <div class="grid-meta"></div>
     <button class="grid-send-btn btn btn-primary sm">Send</button>
+  </div>
+</template>
+
+<template id="tpl-remote-grid-item">
+  <div class="grid-item">
+    <div class="grid-thumb"></div>
+    <div class="grid-name"></div>
+    <div class="grid-meta"></div>
+    <div class="remote-item-actions">
+      <button class="remote-view-btn btn btn-ghost sm">View</button>
+      <button class="remote-download-btn btn btn-primary sm">Download</button>
+    </div>
   </div>
 </template>
 
@@ -814,13 +880,29 @@ async function setSetting(key, value) {
  *   file-done    { transferId }                    // sender finished writing
  *   file-cancel  { transferId }
  *   file-error   { transferId, message }
+ *   lib-list     { entries: [{id,name,size,mime,category}] }  // full snapshot of one side's library
+ *   file-pull    { libraryId, resumeFromByte, purpose }        // "give me this item I can already see"
+ *   file-pull-ack{ transferId, libraryId, name, size, mime, category }
  *   ping / pong  keepalive
+ *
+ * "Pulled" transfers (file-pull / file-pull-ack) reuse the exact same
+ * file-accept -> chunk -> file-done pipeline as a normal push offer; the
+ * only difference is *who* initiates and that no incoming-offer toast is
+ * shown, since the receiver explicitly asked for that exact item.
  */
 
-const CHUNK_SIZE = 64 * 1024;          // 64KB per chunk — safe under typical SCTP message limits
+// 256KB strikes a good balance: comfortably under every browser's SCTP
+// message-size limit (Chrome/Firefox/Safari all happily do multi-MB, but
+// 256KB is the safe floor that works everywhere) while cutting the number of
+// async round-trips (Blob.slice().arrayBuffer() + channel.send()) by 4x
+// compared to the old 64KB chunks. On a LAN/hotspot the bottleneck is almost
+// never the wire — it's the number of JS microtask hops per chunk. Fewer,
+// bigger chunks = much higher throughput for the same link.
+const CHUNK_SIZE = 256 * 1024;
 const HEADER_BYTES = 8;
-const BUFFERED_AMOUNT_HIGH_WATER = 8 * 1024 * 1024;  // pause sending above 8MB queued
-const BUFFERED_AMOUNT_LOW_WATER = 2 * 1024 * 1024;   // resume sending below 2MB queued
+const BUFFERED_AMOUNT_HIGH_WATER = 32 * 1024 * 1024;  // pause sending above 32MB queued
+const BUFFERED_AMOUNT_LOW_WATER = 8 * 1024 * 1024;    // resume sending below 8MB queued
+const PROGRESS_EMIT_INTERVAL_MS = 120; // throttle progress events so the UI can't become the bottleneck
 
 // STUN is only used for candidate gathering format/ICE machinery — with both
 // devices on the same LAN/hotspot, host candidates alone are normally enough
@@ -840,6 +922,12 @@ class LocalShareConnection {
     // Incoming transfers keyed by transferId
     this._incoming = new Map();
     this._nextTransferId = 1;
+
+    // app.js sets this to a function (libraryId) => libraryEntry | null so
+    // that incoming 'file-pull' requests can be resolved against whatever
+    // library implementation the UI layer is using, without webrtc.js needing
+    // to know anything about FileLibrary.
+    this.onPullRequest = null;
   }
 
   _setState(s) {
@@ -953,12 +1041,45 @@ class LocalShareConnection {
       case 'file-offer': bus.emit('transfer:incoming-offer', msg); break;
       case 'file-accept': this._beginSending(msg.transferId, msg.resumeFromByte || 0); break;
       case 'file-decline': bus.emit('transfer:declined', msg); this._outgoing.delete(msg.transferId); break;
-      case 'file-cancel': this._cancelIncoming(msg.transferId); bus.emit('transfer:cancelled', msg); break;
+      case 'file-cancel': this._cancelAny(msg.transferId); bus.emit('transfer:cancelled', msg); break;
       case 'file-done': bus.emit('transfer:sender-done', msg); break;
       case 'file-error': bus.emit('transfer:error', msg); break;
+      case 'lib-list': bus.emit('library:remote-list', msg.entries || []); break;
+      case 'file-pull': this._handlePullRequest(msg); break;
+      case 'file-pull-ack': bus.emit('transfer:pull-ack', msg); break;
       case 'ping': this._send({ type: 'pong' }); break;
       default: bus.emit('rtc:message', msg);
     }
+  }
+
+  /** Broadcast this side's full library snapshot to the peer (sent on connect and whenever it changes). */
+  sendLibraryList(entries) {
+    this._send({
+      type: 'lib-list',
+      entries: entries.map((e) => ({ id: e.id, name: e.name, size: e.size, mime: e.mime, category: e.category })),
+    });
+  }
+
+  /** Peer asked for a specific item we're sharing. Register it as an outgoing transfer and ack — no toast on our side, they already explicitly requested this exact item. */
+  _handlePullRequest(msg) {
+    const entry = this.onPullRequest && this.onPullRequest(msg.libraryId);
+    if (!entry) {
+      this._send({ type: 'file-error', transferId: -1, message: 'That item is no longer available.' });
+      return;
+    }
+    const transferId = this._nextTransferId++;
+    this._outgoing.set(transferId, {
+      source: entry.blob, name: entry.name, size: entry.size, mime: entry.mime, offset: 0, paused: false, cancelled: false,
+    });
+    this._send({
+      type: 'file-pull-ack', transferId, libraryId: msg.libraryId,
+      name: entry.name, size: entry.size, mime: entry.mime, category: entry.category,
+    });
+  }
+
+  /** Ask the peer to push a library item we can already see. purpose is 'download' or 'view', just carried through for our own bookkeeping. */
+  pullFile(libraryId, resumeFromByte = 0, purpose = 'download') {
+    this._send({ type: 'file-pull', libraryId, resumeFromByte, purpose });
   }
 
   // ---------- Sending files ----------
@@ -968,7 +1089,7 @@ class LocalShareConnection {
     const transferId = this._nextTransferId++;
     const category = fileCategory(name, mime);
     this._outgoing.set(transferId, {
-      source: fileHandleOrBlob, name, size, mime, offset: 0, paused: false, cancelled: false,
+      source: fileHandleOrBlob, name, size, mime, offset: 0, paused: false, cancelled: false, _lastEmit: 0,
     });
     this._send({ type: 'file-offer', transferId, name, size, mime, category });
     return transferId;
@@ -979,6 +1100,22 @@ class LocalShareConnection {
     if (t) t.cancelled = true;
     this._send({ type: 'file-cancel', transferId });
     this._outgoing.delete(transferId);
+  }
+
+  /** Cancel a transfer we're on the *receiving* end of (e.g. a live view stream the person closed) — tells the peer to stop pushing bytes for it. */
+  cancelIncoming(transferId) {
+    this._cancelIncoming(transferId);
+    this._send({ type: 'file-cancel', transferId });
+  }
+
+  /** Handle an incoming 'file-cancel' regardless of which map the transferId lives in on our side. */
+  _cancelAny(transferId) {
+    if (this._outgoing.has(transferId)) {
+      this._outgoing.delete(transferId);
+    }
+    if (this._incoming.has(transferId)) {
+      this._cancelIncoming(transferId);
+    }
   }
 
   async _beginSending(transferId, resumeFromByte) {
@@ -1024,7 +1161,11 @@ class LocalShareConnection {
       }
 
       t.offset = end;
-      bus.emit('transfer:progress', { transferId, sent: t.offset, size: t.size, direction: 'out' });
+      const now = performance.now();
+      if (t.offset >= t.size || now - (t._lastEmit || 0) >= PROGRESS_EMIT_INTERVAL_MS) {
+        t._lastEmit = now;
+        bus.emit('transfer:progress', { transferId, sent: t.offset, size: t.size, direction: 'out' });
+      }
     }
 
     // Done sending all bytes.
@@ -1038,7 +1179,7 @@ class LocalShareConnection {
 
   /** UI calls this after the user accepts an incoming offer. sink must implement write(chunk)/close()/abort(). */
   acceptIncoming(transferId, meta, sink, resumeFromByte = 0) {
-    this._incoming.set(transferId, { meta, sink, received: resumeFromByte, size: meta.size });
+    this._incoming.set(transferId, { meta, sink, received: resumeFromByte, size: meta.size, _lastEmit: 0 });
     this._send({ type: 'file-accept', transferId, resumeFromByte });
   }
 
@@ -1070,7 +1211,11 @@ class LocalShareConnection {
     }
 
     t.received = chunkOffset + payload.byteLength;
-    bus.emit('transfer:progress', { transferId, received: t.received, size: t.size, direction: 'in' });
+    const now = performance.now();
+    if (t.received >= t.size || now - (t._lastEmit || 0) >= PROGRESS_EMIT_INTERVAL_MS) {
+      t._lastEmit = now;
+      bus.emit('transfer:progress', { transferId, received: t.received, size: t.size, direction: 'in' });
+    }
 
     if (t.received >= t.size) {
       try { await t.sink.close(); } catch {}
@@ -1504,6 +1649,80 @@ async function createReceiveSink(meta) {
 }
 
 
+/**
+ * Creates a "sink" for the *viewer* (not the download flow) — bytes go
+ * straight into a MediaSource for progressive video/audio playback, or into
+ * an in-memory (RAM only) buffer for anything else, rendered as a Blob URL.
+ * Nothing here ever touches disk or IndexedDB; the moment the viewer modal
+ * closes, `abort()`/the caller revokes the object URL and the bytes are
+ * garbage — exactly like a live stream, not a cached copy.
+ */
+function createViewSink(meta, mediaEl) {
+  const isStreamable = (meta.category === 'video' || meta.category === 'audio') && 'MediaSource' in window
+    && MediaSource.isTypeSupported ? MediaSource.isTypeSupported(meta.mime) : false;
+
+  if (isStreamable) {
+    const ms = new MediaSource();
+    const msUrl = URL.createObjectURL(ms);
+    mediaEl.src = msUrl;
+    let sb = null;
+    let queue = [];
+    let closed = false;
+    const pump = () => {
+      if (!sb || sb.updating || queue.length === 0) return;
+      sb.appendBuffer(queue.shift());
+    };
+    const ready = new Promise((resolve) => {
+      ms.addEventListener('sourceopen', () => {
+        try {
+          sb = ms.addSourceBuffer(meta.mime);
+          sb.addEventListener('updateend', pump);
+          resolve();
+        } catch (err) {
+          resolve(); // unsupported codec string — caller will fall back visually
+        }
+      }, { once: true });
+    });
+    return {
+      kind: 'stream',
+      async write(chunk) {
+        await ready;
+        if (closed) return;
+        queue.push(chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength));
+        pump();
+      },
+      async close() {
+        closed = true;
+        const finish = () => { try { if (ms.readyState === 'open') ms.endOfStream(); } catch {} };
+        if (sb && sb.updating) sb.addEventListener('updateend', finish, { once: true }); else finish();
+      },
+      async abort() {
+        closed = true;
+        queue = [];
+        try { if (ms.readyState === 'open') ms.endOfStream(); } catch {}
+      },
+      revoke() { URL.revokeObjectURL(msUrl); },
+    };
+  }
+
+  // Non-streamable (images, PDFs, everything else): buffer in RAM only, then
+  // hand back a Blob URL once complete. Still never written to disk.
+  const chunks = [];
+  let url = null;
+  return {
+    kind: 'memory-view',
+    async write(chunk) { chunks.push(chunk); },
+    async close() {
+      const blob = new Blob(chunks, { type: meta.mime || 'application/octet-stream' });
+      url = URL.createObjectURL(blob);
+      bus.emit('viewer:ready', { url, meta });
+    },
+    async abort() { chunks.length = 0; },
+    revoke() { if (url) URL.revokeObjectURL(url); },
+  };
+}
+
+
 /* ===== app.js ===== */
 /**
  * app.js
@@ -1538,11 +1757,37 @@ async function createReceiveSink(meta) {
     stopJoinScan();
     showScreen('library');
     renderLibrary();
+    $('btnDisconnect').classList.remove('hidden');
+    // Let the peer resolve our library ids, and tell them what we've got.
+    PairingSession.conn.onPullRequest = (libraryId) => FileLibrary.get(libraryId);
+    PairingSession.conn.sendLibraryList(FileLibrary.list());
   });
 
   bus.on('rtc:disconnected', () => {
     $('connLabel').textContent = 'Reconnecting…';
   });
+
+  bus.on('rtc:close', () => {
+    $('btnDisconnect').classList.add('hidden');
+  });
+
+  // ---------- Disconnect ----------
+
+  function disconnectAndReset() {
+    stopHostScan();
+    stopJoinScan();
+    PairingSession.conn?.close();
+    PairingSession.conn = null;
+    RemoteLibrary.clear();
+    pendingIncoming = null;
+    $('incomingToast').classList.add('hidden');
+    for (const { el } of rows.values()) el.remove();
+    rows.clear();
+    $('btnDisconnect').classList.add('hidden');
+    showScreen('start');
+  }
+
+  $('btnDisconnect').addEventListener('click', disconnectAndReset);
 
   // ---------- Start screen ----------
 
@@ -1760,13 +2005,18 @@ async function createReceiveSink(meta) {
   $('librarySearch').addEventListener('input', debounce(renderLibrary, 150));
   $('libraryFilter').addEventListener('change', renderLibrary);
   $('librarySort').addEventListener('change', renderLibrary);
-  bus.on('library:changed', renderLibrary);
+  bus.on('library:changed', () => {
+    renderLibrary();
+    const conn = PairingSession.conn;
+    if (conn && conn.state === 'connected') conn.sendLibraryList(FileLibrary.list());
+  });
 
   $('viewToggle').addEventListener('click', (e) => {
     const btn = e.target.closest('.view-btn');
     if (!btn) return;
     currentView = btn.dataset.view;
     gridEl.dataset.view = currentView;
+    remoteGridEl.dataset.view = currentView;
     document.querySelectorAll('.view-btn').forEach((b) => b.classList.toggle('active', b === btn));
   });
 
@@ -1785,6 +2035,182 @@ async function createReceiveSink(meta) {
     const transferId = conn.offerFile(entry.blob, entry.name, entry.size, entry.mime);
     addTransferRow(transferId, entry.name, entry.category, entry.size, 'out');
   }
+
+  // ---------- Remote (peer-shared) library ----------
+  // Whatever the other device adds shows up here instantly via 'lib-list'
+  // broadcasts. Nothing is transferred until the person taps View or
+  // Download on a specific item — this is just metadata (name/size/type).
+
+  const RemoteLibrary = {
+    entries: new Map(), // id -> {id,name,size,mime,category}
+    setAll(list) {
+      this.entries.clear();
+      for (const e of list) this.entries.set(e.id, e);
+      renderRemoteLibrary();
+    },
+    clear() { this.entries.clear(); renderRemoteLibrary(); },
+    get(id) { return this.entries.get(id); },
+  };
+
+  const remoteGridEl = $('remoteLibraryGrid');
+  const remoteEmptyEl = $('remoteLibraryEmpty');
+  const remoteTpl = $('tpl-remote-grid-item');
+
+  function renderRemoteLibrary() {
+    const items = Array.from(RemoteLibrary.entries.values());
+    remoteGridEl.innerHTML = '';
+    remoteGridEl.dataset.view = currentView;
+    $('remoteLibraryCount').textContent = `${items.length} item${items.length === 1 ? '' : 's'}`;
+    remoteEmptyEl.classList.toggle('hidden', items.length > 0);
+
+    for (const entry of items) {
+      const node = remoteTpl.content.cloneNode(true);
+      node.querySelector('.grid-name').textContent = entry.name;
+      node.querySelector('.grid-meta').textContent = `${formatBytes(entry.size)} · ${entry.category}`;
+      node.querySelector('.grid-thumb').textContent = CATEGORY_ICON[entry.category] || CATEGORY_ICON.file;
+      node.querySelector('.remote-view-btn').addEventListener('click', () => openViewer(entry));
+      node.querySelector('.remote-download-btn').addEventListener('click', () => downloadRemoteEntry(entry));
+      remoteGridEl.appendChild(node);
+    }
+  }
+
+  bus.on('library:remote-list', (list) => RemoteLibrary.setAll(list));
+
+  // Pending pull requests keyed by libraryId, so we know whether an ack was
+  // for a "download straight to disk" or a "stream it into the viewer".
+  const pendingPulls = new Map(); // libraryId -> 'download' | 'view'
+
+  function downloadRemoteEntry(entry) {
+    const conn = PairingSession.conn;
+    if (!conn || conn.state !== 'connected') return;
+    pendingPulls.set(entry.id, 'download');
+    conn.pullFile(entry.id, 0, 'download');
+  }
+
+  bus.on('transfer:pull-ack', async (msg) => {
+    const purpose = pendingPulls.get(msg.libraryId) || 'download';
+    pendingPulls.delete(msg.libraryId);
+    const conn = PairingSession.conn;
+    if (!conn) return;
+    const meta = { transferId: msg.transferId, name: msg.name, size: msg.size, mime: msg.mime, category: msg.category };
+
+    if (purpose === 'download') {
+      try {
+        const sink = await createReceiveSink(meta);
+        conn.acceptIncoming(msg.transferId, meta, sink);
+        addTransferRow(msg.transferId, meta.name, meta.category, meta.size, 'in');
+      } catch (err) {
+        conn.declineIncoming(msg.transferId, 'save-failed');
+      }
+      return;
+    }
+
+    // purpose === 'view'
+    startViewerStream(meta, conn);
+  });
+
+  // ---------- View modal ----------
+
+  const viewModal = $('viewModal');
+  const viewModalBody = $('viewModalBody');
+  let activeViewSink = null;
+  let activeViewMeta = null;
+
+  function closeViewer() {
+    viewModal.classList.add('hidden');
+    if (activeViewSink) {
+      try { activeViewSink.abort?.(); } catch {}
+      try { activeViewSink.revoke?.(); } catch {}
+    }
+    if (activeViewMeta && PairingSession.conn) {
+      // Stop the peer mid-stream rather than pushing bytes nobody is watching.
+      PairingSession.conn.cancelIncoming(activeViewMeta.transferId);
+    }
+    viewModalBody.innerHTML = '';
+    activeViewSink = null;
+    activeViewMeta = null;
+  }
+  $('btnViewModalClose').addEventListener('click', closeViewer);
+
+  $('btnViewModalDownload').addEventListener('click', () => {
+    if (!activeViewMeta) return;
+    // Independent of whatever's mid-stream in the viewer — a real request
+    // for a full, disk-saved copy, same as tapping Download from the grid.
+    const entry = { id: activeViewMeta.libraryId, name: activeViewMeta.name, size: activeViewMeta.size, mime: activeViewMeta.mime, category: activeViewMeta.category };
+    downloadRemoteEntry(entry);
+  });
+
+  function openViewer(entry) {
+    const conn = PairingSession.conn;
+    if (!conn || conn.state !== 'connected') return;
+    $('viewModalTitle').textContent = entry.name;
+    $('viewModalStatus').textContent = 'Connecting…';
+    viewModalBody.innerHTML = '';
+    viewModal.classList.remove('hidden');
+    pendingPulls.set(entry.id, 'view');
+    conn.pullFile(entry.id, 0, 'view');
+  }
+
+  function startViewerStream(meta, conn) {
+    meta.libraryId = meta.libraryId; // no-op, kept explicit for clarity
+    activeViewMeta = meta;
+    $('viewModalStatus').textContent = `${formatBytes(meta.size)} · streaming…`;
+
+    let mediaEl = null;
+    if (meta.category === 'video') {
+      mediaEl = document.createElement('video');
+      mediaEl.controls = true; mediaEl.autoplay = true; mediaEl.playsInline = true;
+    } else if (meta.category === 'audio') {
+      mediaEl = document.createElement('audio');
+      mediaEl.controls = true; mediaEl.autoplay = true;
+    }
+
+    if (mediaEl) {
+      viewModalBody.appendChild(mediaEl);
+      const sink = createViewSink(meta, mediaEl);
+      activeViewSink = sink;
+      conn.acceptIncoming(meta.transferId, meta, sink);
+      return;
+    }
+
+    // Images / PDFs / everything else: wait for the full (in-memory only)
+    // buffer, then render it. createViewSink emits 'viewer:ready' once done.
+    const sink = createViewSink(meta, null);
+    activeViewSink = sink;
+    conn.acceptIncoming(meta.transferId, meta, sink);
+  }
+
+  bus.on('viewer:ready', ({ url, meta }) => {
+    if (!activeViewMeta || activeViewMeta.transferId !== meta.transferId) { URL.revokeObjectURL(url); return; }
+    $('viewModalStatus').textContent = formatBytes(meta.size);
+    if (meta.category === 'image') {
+      const img = document.createElement('img');
+      img.src = url;
+      viewModalBody.appendChild(img);
+    } else if (meta.category === 'pdf') {
+      const frame = document.createElement('iframe');
+      frame.src = url;
+      viewModalBody.appendChild(frame);
+    } else if (meta.category === 'video' || meta.category === 'audio') {
+      // Progressive MediaSource streaming wasn't available for this exact
+      // mime type — we already have the full bytes in RAM at this point, so
+      // just play it back from the in-memory blob instead.
+      const el = document.createElement(meta.category);
+      el.controls = true; el.autoplay = true; if (meta.category === 'video') el.playsInline = true;
+      el.src = url;
+      viewModalBody.appendChild(el);
+    } else {
+      const p = document.createElement('p');
+      p.className = 'muted small';
+      p.textContent = 'No inline preview for this file type — use Download to save it.';
+      viewModalBody.appendChild(p);
+    }
+  });
+
+  bus.on('transfer:progress', ({ transferId, received, size }) => {
+    if (!activeViewMeta || activeViewMeta.transferId !== transferId || received == null) return;
+    $('viewModalStatus').textContent = `${formatBytes(received)} / ${formatBytes(size)} streamed`;
+  });
 
   // ---------- Incoming offer handling ----------
 
