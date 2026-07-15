@@ -910,6 +910,42 @@ const PROGRESS_EMIT_INTERVAL_MS = 120; // throttle progress events so the UI can
 // this deliberately cannot fall back to relaying through the internet.
 const RTC_CONFIG = { iceServers: [] };
 
+/**
+ * The QR density problem isn't the compression or the camera — it's that we
+ * were embedding the *entire* raw SDP text verbatim, including every ICE
+ * candidate Chrome/Safari/etc. gather: UDP host, TCP active, TCP passive,
+ * often duplicated per network interface, each with a long mDNS ".local"
+ * hostname instead of a real IP (privacy feature, but verbose). For a same-
+ * LAN pairing we only ever want UDP host candidates — TCP is redundant here
+ * and roughly doubles the candidate count for zero benefit. Stripping that
+ * out (and deduping identical address:port pairs) routinely cuts the payload
+ * by half or more, which is the difference between a QR any camera can read
+ * in a second and one that's borderline unscannable no matter how good the
+ * lens or lighting is. The trimmed SDP is still fully valid to hand to
+ * setRemoteDescription — we're just not shipping candidates we don't want
+ * the other side attempting anyway.
+ */
+function minifySdpForPairing(sdp) {
+  const seen = new Set();
+  return sdp
+    .split('\r\n')
+    .filter((line) => {
+      if (!line.startsWith('a=candidate:')) return true;
+      const parts = line.split(' ');
+      const transport = parts[2];
+      const address = parts[4];
+      const port = parts[5];
+      const typIndex = parts.indexOf('typ');
+      const type = typIndex >= 0 ? parts[typIndex + 1] : '';
+      if (transport?.toUpperCase() !== 'UDP' || type !== 'host') return false;
+      const key = address + ':' + port;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .join('\r\n');
+}
+
 class LocalShareConnection {
   constructor() {
     this.pc = null;
@@ -993,7 +1029,8 @@ class LocalShareConnection {
     await this.pc.setLocalDescription(offer);
     await this._waitForIceGatheringComplete();
     this._setState('awaiting-remote');
-    return this.pc.localDescription.toJSON ? this.pc.localDescription.toJSON() : { type: this.pc.localDescription.type, sdp: this.pc.localDescription.sdp };
+    const ld = this.pc.localDescription;
+    return { type: ld.type, sdp: minifySdpForPairing(ld.sdp) };
   }
 
   /** HOST: consume the joiner's answer blob to complete the handshake. */
@@ -1011,7 +1048,8 @@ class LocalShareConnection {
     await this.pc.setLocalDescription(answer);
     await this._waitForIceGatheringComplete();
     this._setState('connecting');
-    return this.pc.localDescription.toJSON ? this.pc.localDescription.toJSON() : { type: this.pc.localDescription.type, sdp: this.pc.localDescription.sdp };
+    const ld = this.pc.localDescription;
+    return { type: ld.type, sdp: minifySdpForPairing(ld.sdp) };
   }
 
   close() {
