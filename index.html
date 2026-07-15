@@ -964,6 +964,10 @@ class LocalShareConnection {
     // library implementation the UI layer is using, without webrtc.js needing
     // to know anything about FileLibrary.
     this.onPullRequest = null;
+
+    // Overwritten with the real negotiated value once the channel opens
+    // (see _wireChannel). This default is just a safe placeholder.
+    this._maxMessageSize = 65536;
   }
 
   _setState(s) {
@@ -998,7 +1002,20 @@ class LocalShareConnection {
   _wireChannel(channel) {
     channel.binaryType = 'arraybuffer';
     channel.bufferedAmountLowThreshold = BUFFERED_AMOUNT_LOW_WATER;
-    channel.onopen = () => { this._setState('connected'); bus.emit('rtc:open'); };
+    channel.onopen = () => {
+      this._setState('connected');
+      // Don't assume CHUNK_SIZE is safe — read what this specific pair of
+      // browsers actually negotiated. It varies (Chrome/Firefox/Safari all
+      // differ, and it can even depend on OS), and sending a message even a
+      // few bytes over the real ceiling throws and kills the transfer. Fall
+      // back to a conservative, long-known-safe size if the browser doesn't
+      // expose sctp.maxMessageSize at all.
+      const negotiated = this.pc.sctp?.maxMessageSize;
+      this._maxMessageSize = (typeof negotiated === 'number' && negotiated > HEADER_BYTES)
+        ? negotiated
+        : 65536;
+      bus.emit('rtc:open');
+    };
     channel.onclose = () => { this._setState('closed'); bus.emit('rtc:close'); };
     channel.onerror = (e) => bus.emit('rtc:error', e);
     channel.onmessage = (ev) => this._onMessage(ev.data);
@@ -1182,7 +1199,11 @@ class LocalShareConnection {
         t.paused = true;
         return; // onbufferedamountlow will resume the pump
       }
-      const end = Math.min(t.offset + CHUNK_SIZE, t.size);
+      // Never exceed what this connection actually negotiated — CHUNK_SIZE
+      // is just an upper bound we'd like to use if the link allows it.
+      const maxPayload = Math.max(1024, (this._maxMessageSize || 65536) - HEADER_BYTES);
+      const effectiveChunk = Math.min(CHUNK_SIZE, maxPayload);
+      const end = Math.min(t.offset + effectiveChunk, t.size);
       const slice = blob.slice(t.offset, end);
       const buf = await slice.arrayBuffer();
       const framed = new ArrayBuffer(HEADER_BYTES + buf.byteLength);
