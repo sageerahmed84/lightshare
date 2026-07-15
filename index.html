@@ -906,8 +906,25 @@ async function setSetting(key, value) {
 // bigger chunks = much higher throughput for the same link.
 const CHUNK_SIZE = 256 * 1024;
 const HEADER_BYTES = 8;
-const BUFFERED_AMOUNT_HIGH_WATER = 16 * 1024 * 1024;  // pause sending above 16MB queued
-const BUFFERED_AMOUNT_LOW_WATER = 4 * 1024 * 1024;    // resume sending below 4MB queued
+
+// Multiple RTCDataChannels, all riding the same SCTP association, striped
+// round-robin per-chunk. This doesn't multiply raw link bandwidth, but it
+// removes the single-channel serialization bottleneck: with one channel,
+// throughput is capped by how fast one JS loop can do
+// Blob.slice().arrayBuffer() -> send() -> await-the-next-one. With N
+// channels, N of those pipelines run concurrently, so Blob reads and
+// browser-side send bookkeeping overlap instead of queueing behind each
+// other. Round-robin (chunk i -> channel i % N) rather than giving each
+// channel one big contiguous range is deliberate: it keeps every channel
+// working near the front of the file, so the receiver's reorder buffer
+// (see _handleChunk) only ever has to hold a few channels' worth of chunks,
+// not a large fraction of the whole file.
+const NUM_PARALLEL_CHANNELS = 4;
+
+// These are now *per channel*. Kept at 1/4 of the old single-channel values
+// so the total bytes allowed in flight across all channels is unchanged.
+const BUFFERED_AMOUNT_HIGH_WATER = 4 * 1024 * 1024;  // pause a channel above 4MB queued
+const BUFFERED_AMOUNT_LOW_WATER = 1 * 1024 * 1024;   // resume a channel below 1MB queued
 const PROGRESS_EMIT_INTERVAL_MS = 120; // throttle progress events so the UI can't become the bottleneck
 
 // STUN is only used for candidate gathering format/ICE machinery — with both
@@ -994,38 +1011,63 @@ class LocalShareConnection {
       else if (ics === 'closed') this._setState('closed');
     };
 
+    // this.channels[0] is the "primary" channel: it's the one JSON control
+    // messages (file-offer, file-accept, lib-list, ...) travel over, and its
+    // open/close events drive overall connection state. All channels carry
+    // binary file chunks, chosen by _pumpChannelSegment's round-robin.
+    this.channels = [];
     if (role === 'host') {
-      this.channel = this.pc.createDataChannel('localshare', { ordered: true });
-      this._wireChannel(this.channel);
+      for (let i = 0; i < NUM_PARALLEL_CHANNELS; i++) {
+        const ch = this.pc.createDataChannel('localshare-' + i, { ordered: true });
+        this.channels[i] = ch;
+        this._wireChannel(ch, i);
+      }
+      this.channel = this.channels[0];
     } else {
       this.pc.ondatachannel = (ev) => {
-        this.channel = ev.channel;
-        this._wireChannel(this.channel);
+        // Pull the index out of the label rather than trusting arrival
+        // order — ondatachannel firing order isn't guaranteed to match the
+        // host's creation order.
+        const m = /localshare-(\d+)/.exec(ev.channel.label || '');
+        const idx = m ? Number(m[1]) : this.channels.length;
+        this.channels[idx] = ev.channel;
+        this._wireChannel(ev.channel, idx);
+        if (idx === 0) this.channel = ev.channel;
       };
     }
   }
 
-  _wireChannel(channel) {
+  _wireChannel(channel, index) {
     channel.binaryType = 'arraybuffer';
     channel.bufferedAmountLowThreshold = BUFFERED_AMOUNT_LOW_WATER;
     channel.onopen = () => {
-      this._setState('connected');
-      // Don't assume CHUNK_SIZE is safe — read what this specific pair of
-      // browsers actually negotiated. It varies (Chrome/Firefox/Safari all
-      // differ, and it can even depend on OS), and sending a message even a
-      // few bytes over the real ceiling throws and kills the transfer. Fall
-      // back to a conservative, long-known-safe size if the browser doesn't
-      // expose sctp.maxMessageSize at all.
-      const negotiated = this.pc.sctp?.maxMessageSize;
-      this._maxMessageSize = (typeof negotiated === 'number' && negotiated > HEADER_BYTES)
-        ? negotiated
-        : 65536;
-      bus.emit('rtc:open');
+      // Only the primary channel drives connection state / rtc:open — file
+      // transfers just check channel.readyState directly per-channel before
+      // using each one, so a slightly-later-opening secondary channel can't
+      // cause a spurious "connected" or a stall.
+      if (index === 0) {
+        this._setState('connected');
+        // Don't assume CHUNK_SIZE is safe — read what this specific pair of
+        // browsers actually negotiated. It varies (Chrome/Firefox/Safari all
+        // differ, and it can even depend on OS), and sending a message even a
+        // few bytes over the real ceiling throws and kills the transfer. Fall
+        // back to a conservative, long-known-safe size if the browser doesn't
+        // expose sctp.maxMessageSize at all. This is a property of the whole
+        // SCTP association, so it's the same for every channel — only needs
+        // reading once.
+        const negotiated = this.pc.sctp?.maxMessageSize;
+        this._maxMessageSize = (typeof negotiated === 'number' && negotiated > HEADER_BYTES)
+          ? negotiated
+          : 65536;
+        bus.emit('rtc:open');
+      }
     };
-    channel.onclose = () => { this._setState('closed'); bus.emit('rtc:close'); };
+    channel.onclose = () => { if (index === 0) { this._setState('closed'); bus.emit('rtc:close'); } };
     channel.onerror = (e) => bus.emit('rtc:error', e);
     channel.onmessage = (ev) => this._onMessage(ev.data);
-    channel.onbufferedamountlow = () => this._pumpAllOutgoing();
+    // Resume only *this* channel's paused transfers — each channel manages
+    // its own backpressure independently.
+    channel.onbufferedamountlow = () => this._pumpAllOutgoing(index);
   }
 
   /** Wait until ICE gathering finishes so we produce one complete SDP blob (no trickle needed for manual copy/paste). */
@@ -1076,7 +1118,7 @@ class LocalShareConnection {
   }
 
   close() {
-    try { this.channel?.close(); } catch {}
+    try { (this.channels || []).forEach((c) => c?.close()); } catch {}
     try { this.pc?.close(); } catch {}
     this._setState('closed');
   }
@@ -1182,69 +1224,106 @@ class LocalShareConnection {
   async _beginSending(transferId, resumeFromByte) {
     const t = this._outgoing.get(transferId);
     if (!t) return;
-    t.offset = resumeFromByte;
+
+    // Never exceed what this connection actually negotiated — CHUNK_SIZE is
+    // just an upper bound we'd like to use if the link allows it.
+    const maxPayload = Math.max(1024, (this._maxMessageSize || 65536) - HEADER_BYTES);
+    t.chunkSize = Math.min(CHUNK_SIZE, maxPayload);
+    t.baseOffset = resumeFromByte;
+
+    const n = this.channels.length || 1;
+    // Block b (0-indexed from baseOffset) is sent on channel (b % n). Every
+    // channel starts on its own block so they immediately spread out across
+    // the file instead of all racing for block 0.
+    t.nextBlockIndex = Array.from({ length: n }, (_, i) => i);
+    t.channelDone = new Array(n).fill(false);
+    t.sentByChannel = new Array(n).fill(0);
+    t.cancelled = false;
+    t._lastEmit = 0;
+
     bus.emit('transfer:sending-start', { transferId, size: t.size, resumeFromByte });
-    await this._pumpOutgoing(transferId);
+    await Promise.all(this.channels.map((_, i) => this._pumpChannelSegment(transferId, i)));
   }
 
-  _pumpAllOutgoing() {
-    for (const id of this._outgoing.keys()) this._pumpOutgoing(id);
+  /** A channel just drained below the low-water mark — resume whichever transfers were waiting on it. */
+  _pumpAllOutgoing(channelIndex) {
+    for (const id of this._outgoing.keys()) this._pumpChannelSegment(id, channelIndex);
   }
 
-  /** Read+send chunks until buffer is full or file is exhausted; resumes via onbufferedamountlow. */
-  async _pumpOutgoing(transferId) {
+  /**
+   * Send this transfer's blocks that belong to one channel (block index % N
+   * === channelIndex), until that channel's buffer is full or its blocks
+   * are exhausted. Resumes via that channel's onbufferedamountlow.
+   */
+  async _pumpChannelSegment(transferId, channelIndex) {
     const t = this._outgoing.get(transferId);
-    if (!t || t.cancelled || t.paused) return;
-    if (!this.channel || this.channel.readyState !== 'open') return;
+    if (!t || t.cancelled || !t.chunkSize) return; // not yet started by _beginSending
+    if (t.channelDone[channelIndex]) return;
+
+    const channel = this.channels[channelIndex];
+    if (!channel || channel.readyState !== 'open') return;
 
     const blob = t.source instanceof Blob ? t.source : null;
     if (!blob) return; // filesystem.js hands us a Blob-like slice interface
 
-    while (t.offset < t.size) {
-      if (this.channel.bufferedAmount > BUFFERED_AMOUNT_HIGH_WATER) {
-        t.paused = true;
-        return; // onbufferedamountlow will resume the pump
+    const n = this.channels.length;
+
+    while (true) {
+      const start = t.baseOffset + t.nextBlockIndex[channelIndex] * t.chunkSize;
+      if (start >= t.size) { t.channelDone[channelIndex] = true; break; }
+
+      if (channel.bufferedAmount > BUFFERED_AMOUNT_HIGH_WATER) {
+        return; // this channel's onbufferedamountlow will resume it
       }
-      // Never exceed what this connection actually negotiated — CHUNK_SIZE
-      // is just an upper bound we'd like to use if the link allows it.
-      const maxPayload = Math.max(1024, (this._maxMessageSize || 65536) - HEADER_BYTES);
-      const effectiveChunk = Math.min(CHUNK_SIZE, maxPayload);
-      const end = Math.min(t.offset + effectiveChunk, t.size);
-      const slice = blob.slice(t.offset, end);
+
+      const end = Math.min(start + t.chunkSize, t.size);
+      const slice = blob.slice(start, end);
       const buf = await slice.arrayBuffer();
       const framed = new ArrayBuffer(HEADER_BYTES + buf.byteLength);
       const view = new DataView(framed);
       view.setUint32(0, transferId);
-      view.setUint32(4, t.offset); // chunk start offset, doubles as resume marker
+      view.setUint32(4, start); // chunk start offset, doubles as resume marker
       new Uint8Array(framed, HEADER_BYTES).set(new Uint8Array(buf));
 
       try {
-        this.channel.send(framed);
+        channel.send(framed);
       } catch (err) {
         bus.emit('transfer:error', { transferId, message: String(err) });
         return;
       }
 
-      t.offset = end;
+      t.sentByChannel[channelIndex] += (end - start);
+      t.nextBlockIndex[channelIndex] += n;
+
       const now = performance.now();
-      if (t.offset >= t.size || now - (t._lastEmit || 0) >= PROGRESS_EMIT_INTERVAL_MS) {
+      const totalSent = t.sentByChannel.reduce((a, b) => a + b, 0);
+      if (totalSent >= t.size || now - (t._lastEmit || 0) >= PROGRESS_EMIT_INTERVAL_MS) {
         t._lastEmit = now;
-        bus.emit('transfer:progress', { transferId, sent: t.offset, size: t.size, direction: 'out' });
+        bus.emit('transfer:progress', { transferId, sent: totalSent, size: t.size, direction: 'out' });
       }
     }
 
-    // Done sending all bytes.
-    this._send({ type: 'file-done', transferId });
-    this._outgoing.delete(transferId);
-    bus.emit('transfer:complete', { transferId, direction: 'out' });
-    t.paused = false;
+    if (t.channelDone.every(Boolean)) {
+      // Done sending all bytes, across every channel.
+      this._send({ type: 'file-done', transferId });
+      this._outgoing.delete(transferId);
+      bus.emit('transfer:complete', { transferId, direction: 'out' });
+    }
   }
 
   // ---------- Receiving files ----------
 
   /** UI calls this after the user accepts an incoming offer. sink must implement write(chunk)/close()/abort(). */
   acceptIncoming(transferId, meta, sink, resumeFromByte = 0) {
-    this._incoming.set(transferId, { meta, sink, received: resumeFromByte, size: meta.size, _lastEmit: 0 });
+    this._incoming.set(transferId, {
+      meta, sink, received: resumeFromByte, size: meta.size, _lastEmit: 0,
+      // Chunks that arrive ahead of the write frontier (because they came in
+      // on a faster/less-congested channel) wait here until the bytes before
+      // them land too. Bounded to a few channels' worth of in-flight chunks
+      // — see NUM_PARALLEL_CHANNELS — so this never holds more than a few
+      // MB regardless of file size.
+      pending: new Map(),
+    });
     this._send({ type: 'file-accept', transferId, resumeFromByte });
   }
 
@@ -1262,20 +1341,27 @@ class LocalShareConnection {
     const view = new DataView(arrayBuffer);
     const transferId = view.getUint32(0);
     const chunkOffset = view.getUint32(4);
-    const payload = arrayBuffer.slice(HEADER_BYTES);
+    const payload = new Uint8Array(arrayBuffer.slice(HEADER_BYTES));
 
     const t = this._incoming.get(transferId);
     if (!t) return; // unknown/cancelled transfer, drop silently
 
+    if (chunkOffset !== t.received) {
+      // Came in ahead of the write frontier — a different channel got here
+      // first. Hold it; _writeContiguous will drain it once the offset
+      // right before it has actually been written.
+      t.pending.set(chunkOffset, payload);
+      return;
+    }
+
     try {
-      await t.sink.write(new Uint8Array(payload));
+      await this._writeContiguous(t, payload);
     } catch (err) {
       bus.emit('transfer:error', { transferId, message: String(err) });
       this._incoming.delete(transferId);
       return;
     }
 
-    t.received = chunkOffset + payload.byteLength;
     const now = performance.now();
     if (t.received >= t.size || now - (t._lastEmit || 0) >= PROGRESS_EMIT_INTERVAL_MS) {
       t._lastEmit = now;
@@ -1286,6 +1372,18 @@ class LocalShareConnection {
       try { await t.sink.close(); } catch {}
       this._incoming.delete(transferId);
       bus.emit('transfer:complete', { transferId, direction: 'in' });
+    }
+  }
+
+  /** Write one chunk to the sink (unchanged sink contract: sequential writes only), then drain any buffered out-of-order chunks that are now next in line. */
+  async _writeContiguous(t, payload) {
+    await t.sink.write(payload);
+    t.received += payload.byteLength;
+    while (t.pending.has(t.received)) {
+      const next = t.pending.get(t.received);
+      t.pending.delete(t.received);
+      await t.sink.write(next);
+      t.received += next.byteLength;
     }
   }
 }
@@ -2366,7 +2464,10 @@ function createViewSink(meta, mediaEl) {
     // negotiated a lower) sctp.maxMessageSize, and that's the lever to look
     // at for speed — not the network.
     const negotiated = PairingSession.conn?._maxMessageSize;
-    const chunkNote = negotiated ? `chunk ≤${formatBytes(Math.max(1024, negotiated - 8))}` : '';
+    const numChannels = PairingSession.conn?.channels?.length || 1;
+    const chunkNote = negotiated
+      ? `chunk ≤${formatBytes(Math.max(1024, negotiated - 8))} × ${numChannels}`
+      : '';
     rows.set(transferId, { el: rowEl, size, startedAt: performance.now(), lastBytes: 0, lastTs: performance.now(), chunkNote });
   }
 
