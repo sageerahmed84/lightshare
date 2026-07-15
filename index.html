@@ -374,7 +374,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
     <div class="brand">
       <span class="brand-mark" aria-hidden="true"></span>
       <span class="brand-name">LocalShare</span>
-      <span class="build-tag" id="buildTag" title="Build identifier — check this matches what you expect after deploying">build 2026-07-16.1</span>
+      <span class="build-tag" id="buildTag" title="Build identifier — check this matches what you expect after deploying">build 2026-07-16.2</span>
     </div>
     <div class="conn-pill" id="connPill" data-state="idle">
       <span class="conn-dot"></span>
@@ -2361,7 +2361,13 @@ function createViewSink(meta, mediaEl) {
       rows.delete(transferId);
     });
     trayEl.appendChild(rowEl);
-    rows.set(transferId, { el: rowEl, size, startedAt: performance.now(), lastBytes: 0, lastTs: performance.now() });
+    // Diagnostic: what chunk size is this connection actually using? If this
+    // reads 64KB instead of up to 256KB, the browser pair didn't expose (or
+    // negotiated a lower) sctp.maxMessageSize, and that's the lever to look
+    // at for speed — not the network.
+    const negotiated = PairingSession.conn?._maxMessageSize;
+    const chunkNote = negotiated ? `chunk ≤${formatBytes(Math.max(1024, negotiated - 8))}` : '';
+    rows.set(transferId, { el: rowEl, size, startedAt: performance.now(), lastBytes: 0, lastTs: performance.now(), chunkNote });
   }
 
   bus.on('transfer:progress', ({ transferId, sent, received, size, direction }) => {
@@ -2376,7 +2382,7 @@ function createViewSink(meta, mediaEl) {
     const shownSpeed = row._lastSpeed || 0;
     row.el.querySelector('.transfer-bar-fill').style.width = `${pct}%`;
     row.el.querySelector('.transfer-stats').textContent =
-      `${pct}% · ${formatBytes(done)} / ${formatBytes(size)} · ${formatSpeed(shownSpeed)}`;
+      `${pct}% · ${formatBytes(done)} / ${formatBytes(size)} · ${formatSpeed(shownSpeed)}${row.chunkNote ? ' · ' + row.chunkNote : ''}`;
   });
 
   bus.on('transfer:complete', ({ transferId }) => {
