@@ -214,7 +214,7 @@ html, body {
   padding: 16px; margin: 16px 0 6px;
   box-shadow: var(--shadow-clay-out);
 }
-.qr-canvas { width: 100%; max-width: min(88vw, 380px); height: auto; image-rendering: pixelated; display: block; }
+.qr-canvas { width: 100%; max-width: min(92vw, 520px); height: auto; image-rendering: pixelated; display: block; }
 .qr-hint { text-align: center; color: var(--text-lo); font-size: 12.5px; margin: 0 0 4px; }
 
 .scan-wrap {
@@ -1371,7 +1371,9 @@ function startQrScan(videoEl, onResult, onError, onStatus) {
   let stream = null;
   let raf = null;
   let stalledTimer = null;
+  let noMatchTimer = null;
   let stopped = false;
+  let attempt = 0;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   const status = (s) => onStatus?.(s);
@@ -1383,7 +1385,12 @@ function startQrScan(videoEl, onResult, onError, onStatus) {
       canvas.height = videoEl.videoHeight;
       ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
       const frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const code = jsQR(frame.data, frame.width, frame.height, { inversionAttempts: 'dontInvert' });
+      attempt++;
+      // 'dontInvert' every frame (cheap); every 5th frame also try
+      // 'attemptBoth' as a fallback — more expensive, but catches codes
+      // jsQR's fast path misses without costing much average CPU.
+      const opts = { inversionAttempts: attempt % 5 === 0 ? 'attemptBoth' : 'dontInvert' };
+      const code = jsQR(frame.data, frame.width, frame.height, opts);
       if (code && code.data) {
         stop();
         onResult(code.data);
@@ -1398,6 +1405,7 @@ function startQrScan(videoEl, onResult, onError, onStatus) {
     stopped = true;
     if (raf) cancelAnimationFrame(raf);
     if (stalledTimer) clearTimeout(stalledTimer);
+    if (noMatchTimer) clearTimeout(noMatchTimer);
     if (stream) stream.getTracks().forEach((t) => t.stop());
     videoEl.srcObject = null;
   }
@@ -1405,6 +1413,7 @@ function startQrScan(videoEl, onResult, onError, onStatus) {
   function fail(message, err) {
     stopped = true;
     if (stalledTimer) clearTimeout(stalledTimer);
+    if (noMatchTimer) clearTimeout(noMatchTimer);
     if (stream) stream.getTracks().forEach((t) => t.stop());
     console.error('[qr-scan]', message, err || '');
     onError?.(new Error(message));
@@ -1421,11 +1430,27 @@ function startQrScan(videoEl, onResult, onError, onStatus) {
     return { stop };
   }
 
+  // Ask for a genuinely high-resolution stream. Dense pairing QR codes need
+  // real pixels per module to decode — the default/unconstrained resolution
+  // some browsers pick (as low as 640x480) is often too coarse to resolve a
+  // busy QR code even when it's in perfect focus. `ideal` just means "give
+  // me your best up to this," so it degrades gracefully on weaker devices.
+  const videoConstraints = {
+    facingMode: { ideal: 'environment' },
+    width: { ideal: 1920 },
+    height: { ideal: 1080 },
+  };
+
   status('Requesting camera access…');
-  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } })
+  navigator.mediaDevices.getUserMedia({ video: videoConstraints })
     .catch((err) => {
       // Some devices reject an environment-facing request outright (e.g. no
-      // rear camera enumerated yet) — retry with no facingMode constraint.
+      // rear camera enumerated yet) — retry with just the resolution hint.
+      if (stopped) throw err;
+      return navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 } } });
+    })
+    .catch((err) => {
+      // Last resort: whatever the camera will give us at all.
       if (stopped) throw err;
       return navigator.mediaDevices.getUserMedia({ video: true });
     })
@@ -1446,6 +1471,14 @@ function startQrScan(videoEl, onResult, onError, onStatus) {
           status('Still waiting for the camera feed — try Cancel and Scan again, or check Settings → Safari → Camera for this site.');
         }
       }, 4000);
+      // The scan loop runs silently on every frame with no feedback while it
+      // fails to find a code — which looks identical to "broken" whether the
+      // real cause is distance, focus, glare, or brightness. Say something.
+      noMatchTimer = setTimeout(() => {
+        if (!stopped) {
+          status('Still scanning — move a bit closer or farther until it\u2019s in sharp focus, and turn up the other screen\u2019s brightness.');
+        }
+      }, 6000);
       raf = requestAnimationFrame(tick);
       status('Point the camera at the QR code.');
     })
